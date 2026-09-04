@@ -47,92 +47,165 @@ def test_source():
             flags=re.I
         )
 
-        script_urls = [
-            urljoin(r.url, x)
-            for x in scripts
-        ]
-
-        patterns = [
-            r'https?://[^"\'>\s]+',
-            r'["\']([^"\']*(?:api|ajax|fetch|program|race|yaris)[^"\']*)["\']'
-        ]
-
-        found = []
-
-        for pattern in patterns:
-            matches = re.findall(pattern, html, flags=re.I)
-
-            for item in matches:
-                if isinstance(item, tuple):
-                    item = item[0]
-
-                if item and item not in found:
-                    found.append(item)
+        script_urls = []
+        for src in scripts:
+            script_urls.append(urljoin(r.url, src))
 
         return jsonify({
             "status": r.status_code,
-            "content_type": r.headers.get("content-type"),
             "final_url": r.url,
             "html_size": len(r.content),
             "script_count": len(script_urls),
             "script_urls": script_urls,
-            "possible_api_urls": found[:200],
             "html_start": html[:2000]
         })
 
-    except requests.RequestException as e:
+    except Exception as e:
         return jsonify({
             "error": str(e)
-        }), 502
+        }), 500
 
 
-def test_api(url):
+@app.get("/api/find-endpoints")
+def find_endpoints():
+
     try:
-        r = requests.get(
-            url,
+        page = requests.get(
+            SOURCE_URL,
             headers=HEADERS,
-            timeout=30,
-            allow_redirects=True
+            timeout=30
         )
 
-        result = {
-            "requested_url": url,
-            "status": r.status_code,
-            "content_type": r.headers.get("content-type"),
-            "final_url": r.url,
-            "size": len(r.content)
-        }
+        html = page.text
+
+        scripts = re.findall(
+            r'<script[^>]+src=["\']([^"\']+)["\']',
+            html,
+            flags=re.I
+        )
+
+        script_urls = [
+            urljoin(page.url, x)
+            for x in scripts
+        ]
+
+        results = []
+
+        # Önce HTML'in kendisini tara
+        results.append({
+            "source": "HTML",
+            "url": page.url,
+            "matches": find_api_patterns(html)
+        })
+
+        # Daha sonra JavaScript dosyalarını tara
+        for script_url in script_urls:
+
+            try:
+                js = requests.get(
+                    script_url,
+                    headers=HEADERS,
+                    timeout=20
+                )
+
+                text = js.text
+
+                matches = find_api_patterns(text)
+
+                if matches:
+                    results.append({
+                        "source": "JAVASCRIPT",
+                        "url": script_url,
+                        "size": len(js.content),
+                        "matches": matches
+                    })
+
+            except Exception as e:
+                results.append({
+                    "source": "JAVASCRIPT_ERROR",
+                    "url": script_url,
+                    "error": str(e)
+                })
+
+        return jsonify({
+            "page_status": page.status_code,
+            "page_url": page.url,
+            "script_count": len(script_urls),
+            "results": results
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
+def find_api_patterns(text):
+
+    found = []
+
+    patterns = [
+
+        # Tam URL'ler
+        r'https?://[^\'"\s<>]+',
+
+        # API yolları
+        r'["\']([^"\']*/api/[^"\']*)["\']',
+
+        # tjkbulten / tjkgw
+        r'[^\'"\s<>]{0,150}tjkbulten[^\'"\s<>]{0,250}',
+        r'[^\'"\s<>]{0,150}tjkgw[^\'"\s<>]{0,250}',
+
+        # fetch
+        r'fetch\s*\([^)]{0,500}\)',
+
+        # axios
+        r'axios\.[a-zA-Z]+\s*\([^)]{0,500}\)',
+
+        # AJAX
+        r'\$\.ajax\s*\([^)]{0,800}\)',
+        r'\$\.get\s*\([^)]{0,500}\)',
+        r'\$\.post\s*\([^)]{0,500}\)',
+
+        # Program / yarış endpoint isimleri
+        r'["\'][^"\']*(?:program|race|races|yaris|kosu|bulten)[^"\']*["\']'
+    ]
+
+    for pattern in patterns:
 
         try:
-            result["json"] = r.json()
+            matches = re.findall(
+                pattern,
+                text,
+                flags=re.I
+            )
+
+            for item in matches:
+
+                if isinstance(item, tuple):
+                    item = item[0]
+
+                if item and item not in found:
+
+                    # Çok uzun ve anlamsız şeyleri alma
+                    if len(item) <= 1000:
+                        found.append(item)
+
         except Exception:
-            result["text_start"] = r.text[:5000]
+            pass
 
-        return jsonify(result)
-
-    except requests.RequestException as e:
-        return jsonify({
-            "requested_url": url,
-            "error": str(e)
-        }), 502
-
-
-@app.get("/api/test-bulten")
-def test_bulten():
-    return test_api(
-        "https://tjkbulten.atyarisi.com/api"
-    )
-
-
-@app.get("/api/test-gw")
-def test_gw():
-    return test_api(
-        "https://tjkgw.atyarisi.com/api"
-    )
+    return found[:300]
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
 
     app.run(
         host="0.0.0.0",
