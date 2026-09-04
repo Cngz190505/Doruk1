@@ -30,18 +30,75 @@ def home():
     return send_from_directory(".", "index.html")
 
 
-@app.get("/api/find-call")
-def find_call():
+@app.get("/api/find-config")
+def find_config():
 
     try:
-        page = requests.get(
+        r = requests.get(
             SOURCE_URL,
             headers=HEADERS,
             timeout=30
         )
 
-        html = page.text
+        html = r.text
 
+        # Sayfanın HTML'i içinde aranacak kelimeler
+        keywords = [
+            "SGBultenUrl",
+            "FullBultenUrl",
+            "SGGameUrl",
+            "BultenUrl",
+            "Race",
+            "Horse",
+            "Yaris",
+            "Yarış",
+            "Program",
+            "TJK"
+        ]
+
+        matches = []
+
+        # Önce doğrudan HTML içinde ara
+        for keyword in keywords:
+
+            positions = []
+            start = 0
+
+            while True:
+
+                pos = html.lower().find(
+                    keyword.lower(),
+                    start
+                )
+
+                if pos == -1:
+                    break
+
+                positions.append(pos)
+                start = pos + len(keyword)
+
+                if len(positions) >= 3:
+                    break
+
+            for pos in positions:
+
+                before = max(0, pos - 700)
+                after = min(len(html), pos + 1200)
+
+                matches.append({
+                    "keyword": keyword,
+                    "source": "HTML",
+                    "context": html[before:after]
+                })
+
+                if len(matches) >= 30:
+                    break
+
+            if len(matches) >= 30:
+                break
+
+
+        # Sayfadaki script dosyalarını bul
         scripts = re.findall(
             r'<script[^>]+src=["\']([^"\']+)["\']',
             html,
@@ -49,84 +106,67 @@ def find_call():
         )
 
         script_urls = [
-            urljoin(page.url, x)
+            urljoin(r.url, x)
             for x in scripts
         ]
 
-        keywords = [
-            "SGBultenUrl",
-            "FullBultenUrl",
-            "getprebultenall",
-            "getprebultenv3",
-            "getprebultenfull",
-            "getprebultendelta"
-        ]
 
-        results = []
-
-        for script_url in script_urls:
+        # Scriptlerde özellikle URL/config tanımlarını ara
+        for script_url in script_urls[:30]:
 
             try:
-                js_response = requests.get(
+                js = requests.get(
                     script_url,
                     headers=HEADERS,
                     timeout=20
-                )
-
-                js = js_response.text
-
+                ).text
             except Exception:
                 continue
 
-            for keyword in keywords:
+            config_patterns = [
+                r'SGBultenUrl.{0,300}',
+                r'FullBultenUrl.{0,300}',
+                r'SGGameUrl.{0,300}',
+                r'BultenUrl.{0,300}',
+                r'Race.{0,200}',
+                r'Yaris.{0,200}',
+                r'Program.{0,200}'
+            ]
 
-                positions = []
-                start = 0
+            for pattern in config_patterns:
 
-                while True:
+                found = re.findall(
+                    pattern,
+                    js,
+                    flags=re.I
+                )
 
-                    pos = js.lower().find(
-                        keyword.lower(),
-                        start
-                    )
+                for item in found[:3]:
 
-                    if pos == -1:
-                        break
-
-                    positions.append(pos)
-                    start = pos + len(keyword)
-
-                    if len(positions) >= 5:
-                        break
-
-                for pos in positions:
-
-                    before = max(0, pos - 1800)
-                    after = min(len(js), pos + 2500)
-
-                    context = js[before:after]
-
-                    results.append({
-                        "keyword": keyword,
-                        "script": script_url,
-                        "context": context
+                    matches.append({
+                        "keyword": pattern,
+                        "source": script_url,
+                        "context": item[:1000]
                     })
 
-                    if len(results) >= 25:
+                    if len(matches) >= 50:
                         break
 
-                if len(results) >= 25:
+                if len(matches) >= 50:
                     break
 
-            if len(results) >= 25:
+            if len(matches) >= 50:
                 break
+
 
         return jsonify({
             "ok": True,
+            "status": r.status_code,
+            "html_size": len(r.content),
             "script_count": len(script_urls),
-            "result_count": len(results),
-            "results": results
+            "matches": matches[:50]
         })
+
 
     except Exception as e:
 
@@ -138,9 +178,14 @@ def find_call():
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 5000))
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
 
     app.run(
         host="0.0.0.0",
         port=port
-                    )
+    )
