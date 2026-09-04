@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, send_from_directory, jsonify
+from flask import Flask, jsonify, send_from_directory
 import requests
 import os
 import re
@@ -9,7 +9,11 @@ app = Flask(__name__)
 SOURCE_URL = "https://www.atyarisi.com/tjk-at-yarisi-programi"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120 Safari/537.36"
+    )
 }
 
 
@@ -37,7 +41,6 @@ def test_source():
 
         html = r.text
 
-        # Script dosyalarını bul
         scripts = re.findall(
             r'<script[^>]+src=["\']([^"\']+)["\']',
             html,
@@ -49,7 +52,6 @@ def test_source():
             for x in scripts
         ]
 
-        # HTML içinde API/AJAX/fetch benzeri ifadeleri bul
         patterns = [
             r'https?://[^"\'>\s]+',
             r'["\']([^"\']*(?:api|ajax|fetch|program|race|yaris)[^"\']*)["\']'
@@ -59,9 +61,11 @@ def test_source():
 
         for pattern in patterns:
             matches = re.findall(pattern, html, flags=re.I)
+
             for item in matches:
                 if isinstance(item, tuple):
                     item = item[0]
+
                 if item and item not in found:
                     found.append(item)
 
@@ -82,33 +86,55 @@ def test_source():
         }), 502
 
 
-@app.get("/api/proxy")
-def proxy():
-    url = request.args.get("url", "").strip()
-
-    if not url.startswith(("http://", "https://")):
-        return {"error": "Geçerli bir http/https URL gerekli."}, 400
-
+def test_api(url):
     try:
         r = requests.get(
             url,
             headers=HEADERS,
-            timeout=20
+            timeout=30,
+            allow_redirects=True
         )
 
-        return Response(
-            r.content,
-            status=r.status_code,
-            content_type=r.headers.get(
-                "content-type",
-                "text/plain"
-            )
-        )
+        result = {
+            "requested_url": url,
+            "status": r.status_code,
+            "content_type": r.headers.get("content-type"),
+            "final_url": r.url,
+            "size": len(r.content)
+        }
+
+        try:
+            result["json"] = r.json()
+        except Exception:
+            result["text_start"] = r.text[:5000]
+
+        return jsonify(result)
 
     except requests.RequestException as e:
-        return {"error": str(e)}, 502
+        return jsonify({
+            "requested_url": url,
+            "error": str(e)
+        }), 502
+
+
+@app.get("/api/test-bulten")
+def test_bulten():
+    return test_api(
+        "https://tjkbulten.atyarisi.com/api"
+    )
+
+
+@app.get("/api/test-gw")
+def test_gw():
+    return test_api(
+        "https://tjkgw.atyarisi.com/api"
+    )
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
