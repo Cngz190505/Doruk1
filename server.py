@@ -35,8 +35,7 @@ def test_source():
         r = requests.get(
             SOURCE_URL,
             headers=HEADERS,
-            timeout=30,
-            allow_redirects=True
+            timeout=30
         )
 
         html = r.text
@@ -47,9 +46,13 @@ def test_source():
             flags=re.I
         )
 
-        script_urls = []
-        for src in scripts:
-            script_urls.append(urljoin(r.url, src))
+        script_urls = [
+            urljoin(r.url, x)
+            for x in scripts
+        ]
+
+        # HTML içinde doğrudan API izlerini bul
+        api_matches = find_matches(html)
 
         return jsonify({
             "status": r.status_code,
@@ -57,7 +60,7 @@ def test_source():
             "html_size": len(r.content),
             "script_count": len(script_urls),
             "script_urls": script_urls,
-            "html_start": html[:2000]
+            "html_api_matches": api_matches
         })
 
     except Exception as e:
@@ -66,21 +69,51 @@ def test_source():
         }), 500
 
 
-@app.get("/api/find-endpoints")
-def find_endpoints():
+def find_matches(text):
+
+    results = []
+
+    patterns = [
+        r'https?://[^\'"\s<>]+',
+        r'[^\'"\s<>]{0,150}tjkbulten[^\'"\s<>]{0,300}',
+        r'[^\'"\s<>]{0,150}tjkgw[^\'"\s<>]{0,300}',
+        r'["\']([^"\']*/api/[^"\']*)["\']',
+        r'fetch\s*\([^)]{0,400}\)',
+        r'axios\.[a-zA-Z]+\s*\([^)]{0,400}\)',
+    ]
+
+    for pattern in patterns:
+        try:
+            matches = re.findall(pattern, text, re.I)
+
+            for item in matches:
+
+                if isinstance(item, tuple):
+                    item = item[0]
+
+                if item and item not in results:
+                    results.append(item)
+
+        except Exception:
+            pass
+
+    return results[:150]
+
+
+@app.get("/api/find-js-api")
+def find_js_api():
 
     try:
+
         page = requests.get(
             SOURCE_URL,
             headers=HEADERS,
-            timeout=30
+            timeout=20
         )
-
-        html = page.text
 
         scripts = re.findall(
             r'<script[^>]+src=["\']([^"\']+)["\']',
-            html,
+            page.text,
             flags=re.I
         )
 
@@ -91,46 +124,38 @@ def find_endpoints():
 
         results = []
 
-        # Önce HTML'in kendisini tara
-        results.append({
-            "source": "HTML",
-            "url": page.url,
-            "matches": find_api_patterns(html)
-        })
-
-        # Daha sonra JavaScript dosyalarını tara
-        for script_url in script_urls:
+        # Sadece ilk 15 JS dosyasını kontrol ediyoruz.
+        # Böylece Render'ın zaman aşımına uğramasını önlüyoruz.
+        for url in script_urls[:15]:
 
             try:
+
                 js = requests.get(
-                    script_url,
+                    url,
                     headers=HEADERS,
-                    timeout=20
+                    timeout=8
                 )
 
-                text = js.text
+                matches = find_matches(js.text)
 
-                matches = find_api_patterns(text)
-
-                if matches:
-                    results.append({
-                        "source": "JAVASCRIPT",
-                        "url": script_url,
-                        "size": len(js.content),
-                        "matches": matches
-                    })
+                results.append({
+                    "url": url,
+                    "status": js.status_code,
+                    "size": len(js.content),
+                    "matches": matches
+                })
 
             except Exception as e:
+
                 results.append({
-                    "source": "JAVASCRIPT_ERROR",
-                    "url": script_url,
+                    "url": url,
                     "error": str(e)
                 })
 
         return jsonify({
             "page_status": page.status_code,
-            "page_url": page.url,
             "script_count": len(script_urls),
+            "checked": min(15, len(script_urls)),
             "results": results
         })
 
@@ -139,63 +164,6 @@ def find_endpoints():
         return jsonify({
             "error": str(e)
         }), 500
-
-
-def find_api_patterns(text):
-
-    found = []
-
-    patterns = [
-
-        # Tam URL'ler
-        r'https?://[^\'"\s<>]+',
-
-        # API yolları
-        r'["\']([^"\']*/api/[^"\']*)["\']',
-
-        # tjkbulten / tjkgw
-        r'[^\'"\s<>]{0,150}tjkbulten[^\'"\s<>]{0,250}',
-        r'[^\'"\s<>]{0,150}tjkgw[^\'"\s<>]{0,250}',
-
-        # fetch
-        r'fetch\s*\([^)]{0,500}\)',
-
-        # axios
-        r'axios\.[a-zA-Z]+\s*\([^)]{0,500}\)',
-
-        # AJAX
-        r'\$\.ajax\s*\([^)]{0,800}\)',
-        r'\$\.get\s*\([^)]{0,500}\)',
-        r'\$\.post\s*\([^)]{0,500}\)',
-
-        # Program / yarış endpoint isimleri
-        r'["\'][^"\']*(?:program|race|races|yaris|kosu|bulten)[^"\']*["\']'
-    ]
-
-    for pattern in patterns:
-
-        try:
-            matches = re.findall(
-                pattern,
-                text,
-                flags=re.I
-            )
-
-            for item in matches:
-
-                if isinstance(item, tuple):
-                    item = item[0]
-
-                if item and item not in found:
-
-                    # Çok uzun ve anlamsız şeyleri alma
-                    if len(item) <= 1000:
-                        found.append(item)
-
-        except Exception:
-            pass
-
-    return found[:300]
 
 
 if __name__ == "__main__":
