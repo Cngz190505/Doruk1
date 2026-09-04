@@ -13,7 +13,23 @@ HEADERS = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120 Safari/537.36"
-    )
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://www.atyarisi.com/"
+}
+
+BULTEN_URLS = {
+    "prebultenall":
+        "https://bulten.nesine.com/api/bulten/getprebultenall",
+
+    "prebultenv3":
+        "https://bulten.nesine.com/api/bulten/getprebultenv3",
+
+    "prebultenfull":
+        "https://bulten.nesine.com/api/bulten/getprebultenfull",
+
+    "prebultenIdeta":
+        "https://bulten.nesine.com/api/bulten/getprebultenIdeta"
 }
 
 
@@ -31,6 +47,7 @@ def home():
 
 @app.get("/api/test-source")
 def test_source():
+
     try:
         r = requests.get(
             SOURCE_URL,
@@ -51,16 +68,12 @@ def test_source():
             for x in scripts
         ]
 
-        # HTML içinde doğrudan API izlerini bul
-        api_matches = find_matches(html)
-
         return jsonify({
             "status": r.status_code,
             "final_url": r.url,
             "html_size": len(r.content),
             "script_count": len(script_urls),
-            "script_urls": script_urls,
-            "html_api_matches": api_matches
+            "script_urls": script_urls
         })
 
     except Exception as e:
@@ -69,111 +82,101 @@ def test_source():
         }), 500
 
 
-def find_matches(text):
+@app.get("/api/test-bultenler")
+def test_bultenler():
 
-    results = []
+    results = {}
 
-    patterns = [
-        r'https?://[^\'"\s<>]+',
-        r'[^\'"\s<>]{0,150}tjkbulten[^\'"\s<>]{0,300}',
-        r'[^\'"\s<>]{0,150}tjkgw[^\'"\s<>]{0,300}',
-        r'["\']([^"\']*/api/[^"\']*)["\']',
-        r'fetch\s*\([^)]{0,400}\)',
-        r'axios\.[a-zA-Z]+\s*\([^)]{0,400}\)',
-    ]
+    for name, url in BULTEN_URLS.items():
 
-    for pattern in patterns:
         try:
-            matches = re.findall(pattern, text, re.I)
 
-            for item in matches:
+            r = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=15
+            )
 
-                if isinstance(item, tuple):
-                    item = item[0]
+            result = {
+                "url": url,
+                "status": r.status_code,
+                "content_type": r.headers.get("content-type"),
+                "size": len(r.content)
+            }
 
-                if item and item not in results:
-                    results.append(item)
+            # JSON ise doğrudan göster
+            try:
+                data = r.json()
 
-        except Exception:
-            pass
+                result["response_type"] = "JSON"
+                result["data"] = data
 
-    return results[:150]
+            except Exception:
+
+                result["response_type"] = "TEXT"
+                result["text_start"] = r.text[:3000]
+
+            results[name] = result
+
+        except Exception as e:
+
+            results[name] = {
+                "url": url,
+                "error": str(e)
+            }
+
+    return jsonify({
+        "message": "Bülten endpoint test sonuçları",
+        "results": results
+    })
 
 
-@app.get("/api/find-js-api")
-def find_js_api():
+@app.get("/api/test-one/<name>")
+def test_one(name):
+
+    if name not in BULTEN_URLS:
+        return jsonify({
+            "error": "Geçersiz endpoint",
+            "available": list(BULTEN_URLS.keys())
+        }), 400
+
+    url = BULTEN_URLS[name]
 
     try:
 
-        page = requests.get(
-            SOURCE_URL,
+        r = requests.get(
+            url,
             headers=HEADERS,
             timeout=20
         )
 
-        scripts = re.findall(
-            r'<script[^>]+src=["\']([^"\']+)["\']',
-            page.text,
-            flags=re.I
-        )
+        result = {
+            "name": name,
+            "url": url,
+            "status": r.status_code,
+            "content_type": r.headers.get("content-type"),
+            "size": len(r.content)
+        }
 
-        script_urls = [
-            urljoin(page.url, x)
-            for x in scripts
-        ]
+        try:
+            result["json"] = r.json()
+        except Exception:
+            result["text"] = r.text[:10000]
 
-        results = []
-
-        # Sadece ilk 15 JS dosyasını kontrol ediyoruz.
-        # Böylece Render'ın zaman aşımına uğramasını önlüyoruz.
-        for url in script_urls[:15]:
-
-            try:
-
-                js = requests.get(
-                    url,
-                    headers=HEADERS,
-                    timeout=8
-                )
-
-                matches = find_matches(js.text)
-
-                results.append({
-                    "url": url,
-                    "status": js.status_code,
-                    "size": len(js.content),
-                    "matches": matches
-                })
-
-            except Exception as e:
-
-                results.append({
-                    "url": url,
-                    "error": str(e)
-                })
-
-        return jsonify({
-            "page_status": page.status_code,
-            "script_count": len(script_urls),
-            "checked": min(15, len(script_urls)),
-            "results": results
-        })
+        return jsonify(result)
 
     except Exception as e:
 
         return jsonify({
+            "name": name,
+            "url": url,
             "error": str(e)
-        }), 500
+        }), 502
 
 
 if __name__ == "__main__":
 
-    port = int(
-        os.environ.get(
-            "PORT",
-            5000
-        )
-    )
+    port = int(os.environ.get("PORT", 5000))
 
     app.run(
         host="0.0.0.0",
