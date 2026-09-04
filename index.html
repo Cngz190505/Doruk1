@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yabancı Yarış Veri Testi</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:900px;margin:25px auto;padding:0 15px}
+input,button{width:100%;box-sizing:border-box;padding:11px;margin:6px 0;font-size:15px}
+button{cursor:pointer}.box{padding:12px;background:#f4f4f4;border-radius:8px;margin-top:12px}
+pre{white-space:pre-wrap;word-break:break-word;background:#111;color:#eee;padding:12px;border-radius:8px;max-height:500px;overflow:auto}
+</style>
+</head>
+<body>
+<h2>🏇 Yabancı Yarış Veri Testi</h2>
+<p>Backend üzerinden veri kaynağına erişimi test eder. İlk aşamada hedef URL'yi elle girebilirsin.</p>
+
+<input id="target" placeholder="https://www.atyarisi.com/... veri/program URL'si">
+<button onclick="test()">Backend ile Test Et</button>
+
+<div class="box">
+<b>Durum:</b> <span id="status">Hazır</span>
+</div>
+<pre id="result">Henüz test yapılmadı.</pre>
+
+<script>
+async function test(){
+ const target=document.getElementById("target").value.trim();
+ const status=document.getElementById("status");
+ const result=document.getElementById("result");
+ if(!target){status.textContent="URL girilmedi";return;}
+ status.textContent="İstek gönderiliyor...";
+ result.textContent="Bekleyin...";
+ try{
+   const r=await fetch("/api/proxy?url="+encodeURIComponent(target));
+   const text=await r.text();
+   status.textContent="HTTP "+r.status;
+   result.textContent=text;
+ }catch(e){
+   status.textContent="Backend'e ulaşılamadı";
+   result.textContent=e.toString();
+ }
+}
+</script>
+</body>
+</html>
