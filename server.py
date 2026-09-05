@@ -1,230 +1,632 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 import requests
-from bs4 import BeautifulSoup
 import re
+import json
+import time
 from datetime import datetime
 
 app = Flask(__name__)
 
-CURRENT_URL = "https://www.sahadan.com/iddaa-programi"
-ARCHIVE_URL = "https://arsiv-origin.sahadan.com/Iddaa/program.aspx"
-
-TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-ODD_RE = re.compile(r"^(?:\d{1,3}[.,]\d{1,2}|-)$")
-CODE_RE = re.compile(r"^\d{4,6}$")
+NESINE_URL = "https://bulten.nesine.com/api/bulten/getprebultenfull"
+VERSION = "nesine-v2"
+CACHE_SECONDS = 15
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
-    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
+    "User-Agent": (
+        "Mozilla/5.0 (Linux; Android 10) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/140.0 Mobile Safari/537.36"
+    ),
+    "Accept": "application/json,text/plain,*/*",
+    "Referer": "https://www.nesine.com/",
+    "Origin": "https://www.nesine.com",
 }
 
-def clean(s):
-    return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
+session = requests.Session()
+session.headers.update(HEADERS)
 
-def norm_odd(s):
-    s = clean(s)
-    return None if not s or s == "-" else s.replace(",", ".")
+cache = {
+    "time": 0,
+    "data": None
+}
 
-def fetch(url, timeout=30):
-    r = requests.get(url, headers=HEADERS, timeout=timeout)
-    r.raise_for_status()
-    r.encoding = r.apparent_encoding or r.encoding
-    return r.text
 
-def parse_archive(html):
-    soup = BeautifulSoup(html, "html.parser")
+def now_iso():
+    return datetime.utcnow().replace(
+        microsecond=0
+    ).isoformat() + "Z"
+
+
+def clean(value):
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def first_value(obj, keys):
+    if not isinstance(obj, dict):
+        return None
+
+    lowered = {
+        str(k).lower(): v
+        for k, v in obj.items()
+    }
+
+    for key in keys:
+        if key in obj and obj[key] not in (None, ""):
+            return obj[key]
+
+        key_lower = key.lower()
+
+        if (
+            key_lower in lowered
+            and lowered[key_lower] not in (None, "")
+        ):
+            return lowered[key_lower]
+
+    return None
+
+
+def walk_dicts(obj):
+    if isinstance(obj, dict):
+        yield obj
+
+        for value in obj.values():
+            yield from walk_dicts(value)
+
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from walk_dicts(value)
+
+
+def normalize_odd(value):
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        if value <= 0:
+            return None
+
+        return round(float(value), 2)
+
+    text = clean(value).replace(",", ".")
+
+    match = re.search(
+        r"\d+(?:\.\d+)?",
+        text
+    )
+
+    if not match:
+        return None
+
+    try:
+        number = float(match.group(0))
+
+        if number <= 0:
+            return None
+
+        return round(number, 2)
+
+    except Exception:
+        return None
+
+
+def extract_teams(obj):
+
+    home = first_value(
+        obj,
+        [
+            "home",
+            "homeTeam",
+            "homeTeamName",
+            "HomeTeam",
+            "HomeTeamName",
+            "team1",
+            "Team1",
+            "competitor1",
+            "Competitor1",
+            "home_name",
+            "homeName",
+        ]
+    )
+
+    away = first_value(
+        obj,
+        [
+            "away",
+            "awayTeam",
+            "awayTeamName",
+            "AwayTeam",
+            "AwayTeamName",
+            "team2",
+            "Team2",
+            "competitor2",
+            "Competitor2",
+            "away_name",
+            "awayName",
+        ]
+    )
+
+    if home and away:
+        return clean(home), clean(away)
+
+    match_name = first_value(
+        obj,
+        [
+            "match_name",
+            "matchName",
+            "eventName",
+            "EventName",
+            "name",
+            "Name",
+            "match",
+            "Match",
+        ]
+    )
+
+    if match_name:
+
+        parts = re.split(
+            r"\s+-\s+|\s+vs\.?\s+|\s+v\s+",
+            clean(match_name),
+            maxsplit=1
+        )
+
+        if len(parts) == 2:
+            return (
+                clean(parts[0]),
+                clean(parts[1])
+            )
+
+    return "", ""
+
+
+def extract_odds(obj):
+
+    result = {
+        "1": None,
+        "X": None,
+        "2": None
+    }
+
+    direct = first_value(
+        obj,
+        [
+            "odds",
+            "Odds",
+            "odd",
+            "Odd",
+            "matchOdds",
+            "match_odds",
+            "mainOdds",
+        ]
+    )
+
+    sources = []
+
+    if isinstance(direct, dict):
+        sources.append(direct)
+
+    sources.append(obj)
+
+    for source in sources:
+
+        if not isinstance(source, dict):
+            continue
+
+        # 1
+        for key in [
+            "1",
+            "1.0",
+            "homeOdd",
+            "homeOdds",
+            "ms1",
+        ]:
+
+            odd = normalize_odd(
+                first_value(source, [key])
+            )
+
+            if odd is not None:
+                result["1"] = odd
+                break
+
+        # X
+        for key in [
+            "X",
+            "x",
+            "draw",
+            "drawOdd",
+            "drawOdds",
+            "msx",
+        ]:
+
+            odd = normalize_odd(
+                first_value(source, [key])
+            )
+
+            if odd is not None:
+                result["X"] = odd
+                break
+
+        # 2
+        for key in [
+            "2",
+            "2.0",
+            "awayOdd",
+            "awayOdds",
+            "ms2",
+        ]:
+
+            odd = normalize_odd(
+                first_value(source, [key])
+            )
+
+            if odd is not None:
+                result["2"] = odd
+                break
+
+    nested = first_value(
+        obj,
+        [
+            "markets",
+            "Markets",
+            "market",
+            "Market",
+            "outcomes",
+            "Outcomes",
+            "selections",
+            "Selections",
+        ]
+    )
+
+    if isinstance(nested, list):
+
+        for item in nested:
+
+            if not isinstance(item, dict):
+                continue
+
+            label = clean(
+                first_value(
+                    item,
+                    [
+                        "label",
+                        "name",
+                        "Name",
+                        "code",
+                        "Code",
+                        "selection",
+                        "Selection",
+                        "type",
+                        "Type",
+                    ]
+                )
+            ).upper()
+
+            odd = normalize_odd(
+                first_value(
+                    item,
+                    [
+                        "odd",
+                        "Odd",
+                        "odds",
+                        "Odds",
+                        "value",
+                        "Value",
+                        "price",
+                        "Price",
+                    ]
+                )
+            )
+
+            if odd is None:
+                continue
+
+            if label in ("1", "MS1", "HOME"):
+                result["1"] = odd
+
+            elif label in ("X", "MSX", "DRAW"):
+                result["X"] = odd
+
+            elif label in ("2", "MS2", "AWAY"):
+                result["2"] = odd
+
+    return result
+
+
+def normalize_match(obj):
+
+    if not isinstance(obj, dict):
+        return None
+
+    home, away = extract_teams(obj)
+
+    if not home or not away:
+        return None
+
+    if len(home) > 100 or len(away) > 100:
+        return None
+
+    date = clean(
+        first_value(
+            obj,
+            [
+                "date",
+                "Date",
+                "matchDate",
+                "MatchDate",
+                "eventDate",
+                "EventDate",
+            ]
+        )
+    )
+
+    match_time = clean(
+        first_value(
+            obj,
+            [
+                "time",
+                "Time",
+                "matchTime",
+                "MatchTime",
+                "eventTime",
+                "EventTime",
+            ]
+        )
+    )
+
+    league = clean(
+        first_value(
+            obj,
+            [
+                "league",
+                "League",
+                "leagueName",
+                "LeagueName",
+                "competition",
+                "Competition",
+                "tournament",
+                "Tournament",
+            ]
+        )
+    )
+
+    league_code = clean(
+        first_value(
+            obj,
+            [
+                "league_code",
+                "leagueCode",
+                "LeagueCode",
+                "competitionCode",
+                "CompetitionCode",
+            ]
+        )
+    )
+
+    code = clean(
+        first_value(
+            obj,
+            [
+                "code",
+                "Code",
+                "matchCode",
+                "MatchCode",
+                "eventCode",
+                "EventCode",
+                "eventId",
+                "EventId",
+                "id",
+                "Id",
+            ]
+        )
+    )
+
+    match_name = clean(
+        first_value(
+            obj,
+            [
+                "match_name",
+                "matchName",
+                "eventName",
+                "EventName",
+            ]
+        )
+    )
+
+    if not match_name:
+        match_name = f"{home} - {away}"
+
+    return {
+        "home": home,
+        "away": away,
+        "date": date,
+        "time": match_time,
+        "league": league,
+        "league_code": league_code,
+        "match_name": match_name,
+        "code": code,
+        "odds": extract_odds(obj),
+        "type": 1
+    }
+
+
+def parse_nesine(payload):
+
     matches = []
-
-    # Legacy Sahadan archive is table-based and exposes:
-    # time / league / home-away / match code / 1-X-2 / other markets.
-    for tr in soup.find_all("tr"):
-        cells = [clean(x.get_text(" ", strip=True)) for x in tr.find_all(["td", "th"])]
-        cells = [x for x in cells if x]
-
-        if not cells:
-            continue
-
-        time_i = next((i for i, x in enumerate(cells) if TIME_RE.match(x)), None)
-        if time_i is None:
-            continue
-
-        tail = cells[time_i + 1:]
-        if len(tail) < 3:
-            continue
-
-        # Find the cell containing the two teams. Archive text normally uses " - ".
-        pair_i = next(
-            (i for i, x in enumerate(tail)
-             if " - " in x and len(x) > 5 and not TIME_RE.match(x)),
-            None
-        )
-        if pair_i is None:
-            continue
-
-        pair = tail[pair_i]
-        home, away = [clean(x) for x in pair.split(" - ", 1)]
-        if not home or not away:
-            continue
-
-        before_pair = tail[:pair_i]
-        league = next(
-            (x for x in reversed(before_pair)
-             if x.upper() not in {"IMAGE", "İMAGE"} and len(x) <= 25),
-            None
-        )
-
-        after = tail[pair_i + 1:]
-
-        # Locate a 4-6 digit match code and take the first three odds after it.
-        code_i = next((i for i, x in enumerate(after) if CODE_RE.match(x)), None)
-
-        code = None
-        odds = []
-        if code_i is not None:
-            code = after[code_i]
-            for x in after[code_i + 1:]:
-                if ODD_RE.match(x):
-                    v = norm_odd(x)
-                    if v is not None:
-                        odds.append(v)
-                    if len(odds) == 3:
-                        break
-
-        # Some rows have the result/score between the teams and code.
-        # We deliberately ignore those and only expose pre-match 1/X/2 odds.
-        if code is None and not odds:
-            continue
-
-        item = {
-            "time": cells[time_i],
-            "league": league,
-            "home": home,
-            "away": away,
-            "code": code,
-            "odds": {
-                "1": odds[0] if len(odds) > 0 else None,
-                "X": odds[1] if len(odds) > 1 else None,
-                "2": odds[2] if len(odds) > 2 else None,
-            },
-        }
-        matches.append(item)
-
-    # Deduplicate while preserving order.
-    out = []
     seen = set()
-    for m in matches:
-        key = (m["time"], m["home"], m["away"], m["code"])
+
+    for obj in walk_dicts(payload):
+
+        match = normalize_match(obj)
+
+        if not match:
+            continue
+
+        key = (
+            match["date"],
+            match["time"],
+            match["home"].casefold(),
+            match["away"].casefold(),
+            match["code"],
+        )
+
         if key in seen:
             continue
+
         seen.add(key)
-        out.append(m)
-    return out
+        matches.append(match)
 
-def parse_current(html):
-    # Current Next.js page: use visible text patterns when possible.
-    soup = BeautifulSoup(html, "html.parser")
-    text = clean(soup.get_text(" ", strip=True))
-
-    # This parser is intentionally conservative. If the current page is only
-    # an RSC shell, we fall through to the legacy archive source below.
-    matches = []
-    pattern = re.compile(
-        r"(?P<home>[A-Za-zÇĞİÖŞÜçğıöşü0-9().'&/\- ]{2,80})\s+"
-        r"(?P<time>(?:[01]\d|2[0-3]):[0-5]\d)\s+"
-        r"(?P<away>[A-Za-zÇĞİÖŞÜçğıöşü0-9().'&/\- ]{2,80})"
+    matches.sort(
+        key=lambda x: (
+            x.get("date", ""),
+            x.get("time", ""),
+            x.get("league", ""),
+            x.get("home", ""),
+        )
     )
-    for m in pattern.finditer(text):
-        home = clean(m.group("home"))
-        away = clean(m.group("away"))
-        if home and away:
-            matches.append({
-                "time": m.group("time"),
-                "league": None,
-                "home": home,
-                "away": away,
-                "code": None,
-                "odds": {"1": None, "X": None, "2": None},
-            })
+
     return matches
 
-@app.get("/")
-def index():
-    return jsonify({
-        "ok": True,
-        "service": "iddaa-program-backend",
-        "source": CURRENT_URL
-    })
 
-@app.get("/api/health")
+def fetch_nesine():
+
+    current_time = time.time()
+
+    if (
+        cache["data"] is not None
+        and current_time - cache["time"] < CACHE_SECONDS
+    ):
+        return cache["data"]
+
+    response = session.get(
+        NESINE_URL,
+        timeout=25
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    matches = parse_nesine(payload)
+
+    result = {
+        "ok": True,
+        "project": "Nesine Veri Sistemi",
+        "version": VERSION,
+        "source": NESINE_URL,
+        "fetched_at": now_iso(),
+        "count": len(matches),
+        "matches": matches,
+    }
+
+    cache["time"] = time.time()
+    cache["data"] = result
+
+    return result
+
+
+# ------------------------------------------------------------
+# ANA SAYFA
+# ------------------------------------------------------------
+
+@app.route("/")
+def home():
+    return send_from_directory(
+        ".",
+        "index.html"
+    )
+
+
+# ------------------------------------------------------------
+# HEALTH
+# ------------------------------------------------------------
+
+@app.route("/api/health")
 def health():
+
     return jsonify({
         "ok": True,
-        "service": "iddaa-program-backend",
-        "time": datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        "project": "Nesine Veri Sistemi",
+        "version": VERSION,
+        "message": "Nesine veri servisi çalışıyor.",
+        "endpoints": {
+            "/api/health": "Servis durumu",
+            "/api/nesine": "Nesine maç ve oran verileri",
+            "/api/version": "Versiyon"
+        }
     })
 
-@app.get("/api/iddaa-program")
-def iddaa_program():
-    errors = []
 
-    # 1) Try the current Sahadan page.
-    try:
-        html = fetch(CURRENT_URL)
-        matches = parse_current(html)
-        if matches:
-            return jsonify({
-                "ok": True,
-                "count": len(matches),
-                "source": CURRENT_URL,
-                "fetched_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                "matches": matches
-            })
-        errors.append("current_page: no matches parsed")
-    except Exception as e:
-        errors.append("current_page: " + str(e))
+# ------------------------------------------------------------
+# NESINE API
+# ------------------------------------------------------------
 
-    # 2) Legacy Sahadan source. This is the important fallback:
-    # it is a server-rendered ASPX table rather than the current Next.js shell.
+@app.route("/api/nesine")
+def nesine():
+
     try:
-        html = fetch(ARCHIVE_URL)
-        matches = parse_archive(html)
-        return jsonify({
-            "ok": True,
-            "count": len(matches),
-            "source": ARCHIVE_URL,
-            "fetched_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            "matches": matches,
-            "fallback_used": True,
-            "notes": errors
-        })
-    except Exception as e:
-        errors.append("archive: " + str(e))
+
+        return jsonify(
+            fetch_nesine()
+        )
+
+    except requests.RequestException as error:
+
         return jsonify({
             "ok": False,
+            "project": "Nesine Veri Sistemi",
+            "version": VERSION,
+            "error": f"Nesine bağlantı hatası: {error}",
             "count": 0,
-            "source": CURRENT_URL,
-            "fetched_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            "matches": [],
-            "errors": errors
+            "matches": []
         }), 502
 
-@app.get("/api/iddaa-debug")
-def debug():
-    result = {"ok": True, "sources": []}
-    for name, url in [("current", CURRENT_URL), ("archive", ARCHIVE_URL)]:
-        try:
-            html = fetch(url, timeout=20)
-            result["sources"].append({
-                "name": name,
-                "url": url,
-                "html_size": len(html),
-                "title": clean(BeautifulSoup(html, "html.parser").title.get_text()) if BeautifulSoup(html, "html.parser").title else None,
-                "archive_matches": len(parse_archive(html)),
-                "current_matches": len(parse_current(html)),
-            })
-        except Exception as e:
-            result["sources"].append({"name": name, "url": url, "error": str(e)})
-    return jsonify(result)
+    except (ValueError, json.JSONDecodeError) as error:
+
+        return jsonify({
+            "ok": False,
+            "project": "Nesine Veri Sistemi",
+            "version": VERSION,
+            "error": f"Nesine JSON okunamadı: {error}",
+            "count": 0,
+            "matches": []
+        }), 502
+
+    except Exception as error:
+
+        return jsonify({
+            "ok": False,
+            "project": "Nesine Veri Sistemi",
+            "version": VERSION,
+            "error": str(error),
+            "count": 0,
+            "matches": []
+        }), 500
+
+
+# ------------------------------------------------------------
+# VERSION
+# ------------------------------------------------------------
+
+@app.route("/api/version")
+def version():
+
+    return jsonify({
+        "ok": True,
+        "version": VERSION,
+        "project": "Nesine Veri Sistemi"
+    })
+
+
+# ------------------------------------------------------------
+# START
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+
+    app.run(
+        host="0.0.0.0",
+        port=5000
+                 )
