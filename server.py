@@ -8,7 +8,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 NESINE_URL = "https://bulten.nesine.com/api/bulten/getprebultenfull"
-VERSION = "nesine-v3"
+VERSION = "nesine-v4"
 CACHE_SECONDS = 15
 
 HEADERS = {
@@ -16,7 +16,7 @@ HEADERS = {
     "Accept": "application/json,text/plain,*/*",
     "Referer": "https://www.nesine.com/",
     "Origin": "https://www.nesine.com",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive"
 }
 
 session = requests.Session()
@@ -38,6 +38,35 @@ def clean(value):
     return re.sub(r"\s+", " ", str(value)).strip()
 
 
+def normalize_odd(value):
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            number = float(value)
+            if number > 0:
+                return round(number, 2)
+        except Exception:
+            return None
+
+    text = clean(value).replace(",", ".")
+
+    match = re.search(r"\d+(?:\.\d+)?", text)
+
+    if not match:
+        return None
+
+    try:
+        number = float(match.group(0))
+        if number > 0:
+            return round(number, 2)
+    except Exception:
+        pass
+
+    return None
+
+
 def first_value(obj, keys):
     if not isinstance(obj, dict):
         return None
@@ -56,39 +85,15 @@ def first_value(obj, keys):
     return None
 
 
-def normalize_odd(value):
-    if value is None:
-        return None
+def walk_dicts(obj):
+    if isinstance(obj, dict):
+        yield obj
+        for value in obj.values():
+            yield from walk_dicts(value)
 
-    if isinstance(value, bool):
-        return None
-
-    if isinstance(value, (int, float)):
-        try:
-            number = float(value)
-            if number <= 0:
-                return None
-            return round(number, 2)
-        except Exception:
-            return None
-
-    text = clean(value).replace(",", ".")
-
-    match = re.search(r"\d+(?:\.\d+)?", text)
-
-    if not match:
-        return None
-
-    try:
-        number = float(match.group(0))
-
-        if number <= 0:
-            return None
-
-        return round(number, 2)
-
-    except Exception:
-        return None
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from walk_dicts(value)
 
 
 def extract_teams(obj):
@@ -137,7 +142,11 @@ def extract_teams(obj):
     ])
 
     if match_name:
-        parts = re.split(r"\s+-\s+|\s+vs\.?\s+|\s+v\s+", clean(match_name), maxsplit=1)
+        parts = re.split(
+            r"\s+-\s+|\s+vs\.?\s+|\s+v\s+",
+            clean(match_name),
+            maxsplit=1
+        )
 
         if len(parts) == 2:
             return clean(parts[0]), clean(parts[1])
@@ -152,7 +161,10 @@ def extract_odds(obj):
         "2": None
     }
 
-    markets = obj.get("MA") if isinstance(obj, dict) else None
+    if not isinstance(obj, dict):
+        return result
+
+    markets = obj.get("MA")
 
     if isinstance(markets, list):
         for market in markets:
@@ -191,96 +203,66 @@ def extract_odds(obj):
         "mainOdds"
     ])
 
-    sources = []
-
     if isinstance(direct, dict):
-        sources.append(direct)
-
-    sources.append(obj)
-
-    for source in sources:
-        if not isinstance(source, dict):
-            continue
-
         if result["1"] is None:
-            for key in ["1", "1.0", "homeOdd", "homeOdds", "ms1"]:
-                odd = normalize_odd(first_value(source, [key]))
-                if odd is not None:
-                    result["1"] = odd
-                    break
+            result["1"] = normalize_odd(
+                first_value(direct, ["1", "1.0", "homeOdd", "homeOdds", "ms1"])
+            )
 
         if result["X"] is None:
-            for key in ["X", "x", "draw", "drawOdd", "drawOdds", "msx"]:
-                odd = normalize_odd(first_value(source, [key]))
-                if odd is not None:
-                    result["X"] = odd
-                    break
+            result["X"] = normalize_odd(
+                first_value(direct, ["X", "x", "draw", "drawOdd", "drawOdds", "msx"])
+            )
 
         if result["2"] is None:
-            for key in ["2", "2.0", "awayOdd", "awayOdds", "ms2"]:
-                odd = normalize_odd(first_value(source, [key]))
-                if odd is not None:
-                    result["2"] = odd
-                    break
-
-    nested = first_value(obj, [
-        "markets",
-        "Markets",
-        "market",
-        "Market",
-        "outcomes",
-        "Outcomes",
-        "selections",
-        "Selections"
-    ])
-
-    if isinstance(nested, list):
-        for item in nested:
-            if not isinstance(item, dict):
-                continue
-
-            label = clean(first_value(item, [
-                "label",
-                "name",
-                "Name",
-                "code",
-                "Code",
-                "selection",
-                "Selection",
-                "type",
-                "Type"
-            ])).upper()
-
-            odd = normalize_odd(first_value(item, [
-                "odd",
-                "Odd",
-                "odds",
-                "Odds",
-                "value",
-                "Value",
-                "price",
-                "Price"
-            ]))
-
-            if odd is None:
-                continue
-
-            if label in ("1", "MS1", "HOME"):
-                result["1"] = odd
-            elif label in ("X", "MSX", "DRAW"):
-                result["X"] = odd
-            elif label in ("2", "MS2", "AWAY"):
-                result["2"] = odd
+            result["2"] = normalize_odd(
+                first_value(direct, ["2", "2.0", "awayOdd", "awayOdds", "ms2"])
+            )
 
     return result
 
 
-def normalize_match(obj, league_map=None):
+def make_league_map(leagues):
+    result = {}
+
+    if not isinstance(leagues, list):
+        return result
+
+    for league in leagues:
+        if not isinstance(league, dict):
+            continue
+
+        code = clean(first_value(league, [
+            "C",
+            "LC",
+            "code",
+            "Code",
+            "leagueCode",
+            "LeagueCode"
+        ]))
+
+        name = clean(first_value(league, [
+            "N",
+            "NAME",
+            "Name",
+            "name",
+            "LN",
+            "leagueName",
+            "LeagueName"
+        ]))
+
+        if code:
+            result[code] = name
+
+    return result
+
+
+def normalize_match(obj, league_map):
     if not isinstance(obj, dict):
         return None
 
-    home = clean(obj.get("HN", ""))
-    away = clean(obj.get("AN", ""))
+    home = clean(obj.get("HN"))
+    away = clean(obj.get("AN"))
 
     if not home or not away:
         home, away = extract_teams(obj)
@@ -291,15 +273,7 @@ def normalize_match(obj, league_map=None):
     if len(home) > 150 or len(away) > 150:
         return None
 
-    match_type = obj.get("TYPE")
-
-    if match_type is not None:
-        match_type_text = clean(match_type)
-
-        if match_type_text not in ("1", "1.0"):
-            return None
-
-    date = clean(obj.get("D", ""))
+    date = clean(obj.get("D"))
 
     if not date:
         date = clean(first_value(obj, [
@@ -311,7 +285,7 @@ def normalize_match(obj, league_map=None):
             "EventDate"
         ]))
 
-    match_time = clean(obj.get("T", ""))
+    match_time = clean(obj.get("T"))
 
     if not match_time:
         match_time = clean(first_value(obj, [
@@ -323,7 +297,7 @@ def normalize_match(obj, league_map=None):
             "EventTime"
         ]))
 
-    league_code = clean(obj.get("LC", ""))
+    league_code = clean(obj.get("LC"))
 
     if not league_code:
         league_code = clean(first_value(obj, [
@@ -336,21 +310,8 @@ def normalize_match(obj, league_map=None):
 
     league = ""
 
-    if isinstance(league_map, dict) and league_code:
-        league_data = league_map.get(league_code)
-
-        if isinstance(league_data, dict):
-            league = clean(first_value(league_data, [
-                "N",
-                "NAME",
-                "Name",
-                "name",
-                "LN",
-                "leagueName",
-                "LeagueName"
-            ]))
-        elif league_data:
-            league = clean(league_data)
+    if league_code and league_code in league_map:
+        league = clean(league_map[league_code])
 
     if not league:
         league = clean(first_value(obj, [
@@ -365,7 +326,7 @@ def normalize_match(obj, league_map=None):
             "Tournament"
         ]))
 
-    code = clean(obj.get("C", ""))
+    code = clean(obj.get("C"))
 
     if not code:
         code = clean(first_value(obj, [
@@ -405,41 +366,6 @@ def normalize_match(obj, league_map=None):
     }
 
 
-def make_league_map(leagues):
-    result = {}
-
-    if not isinstance(leagues, list):
-        return result
-
-    for league in leagues:
-        if not isinstance(league, dict):
-            continue
-
-        code = clean(first_value(league, [
-            "C",
-            "LC",
-            "code",
-            "Code",
-            "leagueCode",
-            "LeagueCode"
-        ]))
-
-        name = clean(first_value(league, [
-            "N",
-            "NAME",
-            "Name",
-            "name",
-            "LN",
-            "leagueName",
-            "LeagueName"
-        ]))
-
-        if code and name:
-            result[code] = name
-
-    return result
-
-
 def parse_nesine(payload):
     matches = []
     seen = set()
@@ -453,7 +379,7 @@ def parse_nesine(payload):
         sg = payload.get("SG")
 
     if not isinstance(sg, dict):
-        sg = {}
+        return matches
 
     events = sg.get("EA")
 
@@ -480,11 +406,11 @@ def parse_nesine(payload):
             continue
 
         key = (
+            match["code"],
             match["date"],
             match["time"],
             match["home"].casefold(),
-            match["away"].casefold(),
-            match["code"]
+            match["away"].casefold()
         )
 
         if key in seen:
@@ -494,18 +420,18 @@ def parse_nesine(payload):
         matches.append(match)
 
     if not matches:
-        for obj in walk_all_dicts(payload):
+        for obj in walk_dicts(payload):
             match = normalize_match(obj, league_map)
 
             if not match:
                 continue
 
             key = (
+                match["code"],
                 match["date"],
                 match["time"],
                 match["home"].casefold(),
-                match["away"].casefold(),
-                match["code"]
+                match["away"].casefold()
             )
 
             if key in seen:
@@ -514,26 +440,16 @@ def parse_nesine(payload):
             seen.add(key)
             matches.append(match)
 
-    matches.sort(key=lambda x: (
-        x.get("date", ""),
-        x.get("time", ""),
-        x.get("league", ""),
-        x.get("home", "")
-    ))
+    matches.sort(
+        key=lambda x: (
+            x.get("date", ""),
+            x.get("time", ""),
+            x.get("league", ""),
+            x.get("home", "")
+        )
+    )
 
     return matches
-
-
-def walk_all_dicts(obj):
-    if isinstance(obj, dict):
-        yield obj
-
-        for value in obj.values():
-            yield from walk_all_dicts(value)
-
-    elif isinstance(obj, list):
-        for value in obj:
-            yield from walk_all_dicts(value)
 
 
 def fetch_nesine():
@@ -552,7 +468,23 @@ def fetch_nesine():
 
     response.raise_for_status()
 
-    payload = response.json()
+    raw = response.content
+
+    if not raw:
+        raise ValueError("Nesine boş veri döndürdü")
+
+    text = raw.decode("utf-8-sig", errors="replace").strip()
+
+    if not text:
+        raise ValueError("Nesine boş veri döndürdü")
+
+    try:
+        payload = json.loads(text)
+    except Exception as error:
+        preview = text[:200].replace("\n", " ").replace("\r", " ")
+        raise ValueError(
+            f"Nesine JSON okunamadı: {error}; cevap: {preview}"
+        )
 
     matches = parse_nesine(payload)
 
@@ -607,16 +539,6 @@ def nesine():
             "matches": []
         }), 502
 
-    except (ValueError, json.JSONDecodeError) as error:
-        return jsonify({
-            "ok": False,
-            "project": "Nesine Veri Sistemi",
-            "version": VERSION,
-            "error": f"Nesine JSON okunamadı: {error}",
-            "count": 0,
-            "matches": []
-        }), 502
-
     except Exception as error:
         return jsonify({
             "ok": False,
@@ -641,4 +563,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=5000
-    )
+            )
