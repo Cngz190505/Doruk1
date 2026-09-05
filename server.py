@@ -826,3 +826,113 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=10000
             )
+
+# =========================================================
+# NESINE TEST
+# =========================================================
+
+NESINE_URL = "https://bulten.nesine.com/api/bulten/getprebultenfull"
+
+
+@app.get("/api/nesine-test")
+def nesine_test():
+
+    try:
+        response = requests.get(
+            NESINE_URL,
+            headers={
+                "User-Agent": HEADERS["User-Agent"],
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Referer": "https://www.nesine.com/",
+            },
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        matches = []
+
+        football_matches = (
+            data.get("sg", {})
+                .get("EA", [])
+        )
+
+        for item in football_matches:
+
+            home = clean(item.get("HN"))
+            away = clean(item.get("AN"))
+
+            if not home or not away:
+                continue
+
+            odds = {
+                "1": None,
+                "X": None,
+                "2": None
+            }
+
+            markets = item.get("MA") or []
+
+            for market in markets:
+
+                # Maç Sonucu marketi
+                if str(
+                    market.get("MTID")
+                ) != "1":
+                    continue
+
+                outcomes = (
+                    market.get("OCA")
+                    or []
+                )
+
+                if len(outcomes) >= 3:
+
+                    odds["1"] = norm_odd(
+                        outcomes[0].get("O")
+                    )
+
+                    odds["X"] = norm_odd(
+                        outcomes[1].get("O")
+                    )
+
+                    odds["2"] = norm_odd(
+                        outcomes[2].get("O")
+                    )
+
+                break
+
+            matches.append({
+                "code": item.get("C"),
+                "date": item.get("D"),
+                "time": item.get("T"),
+                "home": home,
+                "away": away,
+                "league_code": item.get("LC"),
+                "type": item.get("TYPE"),
+                "odds": odds
+            })
+
+            # Test için ilk 20 maç yeterli
+            if len(matches) >= 20:
+                break
+
+        return jsonify({
+            "ok": True,
+            "source": NESINE_URL,
+            "total_source_matches": len(
+                football_matches
+            ),
+            "returned": len(matches),
+            "matches": matches
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "ok": False,
+            "source": NESINE_URL,
+            "error": str(e)
+        }), 502
