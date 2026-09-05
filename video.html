@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Canlı TV</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b0b0b;color:#fff;font-family:Arial,sans-serif}
+header{position:sticky;top:0;background:#111;padding:14px;z-index:5}
+h1{font-size:20px;margin:0 0 10px}input{width:100%;padding:12px;border-radius:10px;border:0;font-size:16px}
+#list{padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.card{background:#181818;border-radius:12px;padding:12px}
+.name{font-weight:700;margin-bottom:10px;min-height:38px}
+button{width:100%;padding:11px;border:0;border-radius:9px;background:#fff;color:#000;font-weight:700}
+#player{display:none;position:fixed;inset:0;background:#000;z-index:20}
+#top{height:52px;background:#111;display:flex;align-items:center;padding:0 10px;gap:10px}
+#back{width:auto;padding:9px 14px}.title{font-weight:700}
+iframe{display:block;width:100%;height:calc(100% - 52px);border:0;background:#000}
+.empty{padding:20px;color:#aaa}
+.status{padding:8px 12px;color:#aaa;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+<h1>📺 Canlı TV</h1>
+<input id="search" placeholder="Kanal ara...">
+</header>
+<div id="status" class="status">Kanallar yükleniyor...</div>
+<div id="list"></div>
+
+<div id="player">
+  <div id="top"><button id="back">← Geri</button><div class="title" id="ptitle"></div></div>
+  <iframe id="frame" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
+</div>
+
+<script>
+const STATIC_CHANNELS = [{"title": "TRT 1", "url": "https://www.canlitv.diy/trt1-izle"}, {"title": "Show TV", "url": "https://www.canlitv.diy/show-tv-izle-1"}, {"title": "Star TV", "url": "https://www.canlitv.diy/star-tv-canli"}, {"title": "Kanal 7", "url": "https://www.canlitv.diy/kanal7"}, {"title": "ATV", "url": "https://www.canlitv.diy/atv-canli"}, {"title": "Kanal D", "url": "https://www.canlitv.diy/kanal-d-canli-yayin"}, {"title": "Now TV", "url": "https://www.canlitv.diy/now-tv-canli-yayin"}, {"title": "Tv8", "url": "https://www.canlitv.diy/tv8-izle-4"}, {"title": "TRT Haber", "url": "https://www.canlitv.diy/trt-haber-izle"}, {"title": "CNN Türk", "url": "https://www.canlitv.diy/cnn-turk-izle-1"}, {"title": "NTV", "url": "https://www.canlitv.diy/ntv-canli-izle"}, {"title": "A Haber", "url": "https://www.canlitv.diy/a-haber-canli-izle"}, {"title": "Habertürk TV", "url": "https://www.canlitv.diy/haberturk"}, {"title": "Halk TV", "url": "https://www.canlitv.diy/halk-tv-canli"}, {"title": "Sözcü TV", "url": "https://www.canlitv.diy/sozcu-tv-izle"}, {"title": "Haber Global", "url": "https://www.canlitv.diy/haber-global"}, {"title": "TV 100", "url": "https://www.canlitv.diy/tv-100"}, {"title": "360 TV", "url": "https://www.canlitv.diy/360-tv"}, {"title": "Beyaz TV", "url": "https://www.canlitv.diy/beyaz-tv"}, {"title": "Tv8.5", "url": "https://www.canlitv.diy/tv85-izle"}, {"title": "TRT Spor", "url": "https://www.canlitv.diy/trt-spor-izle"}, {"title": "beIN Sports Haber", "url": "https://www.canlitv.diy/bein-sports-haber"}, {"title": "HT Spor", "url": "https://www.canlitv.diy/ht-spor-1"}, {"title": "A Spor", "url": "https://www.canlitv.diy/aspor-canli-izle"}, {"title": "Sports Tv", "url": "https://www.canlitv.diy/sports-tv"}, {"title": "Tivibu Spor", "url": "https://www.canlitv.diy/tivibu-spor"}, {"title": "FB TV", "url": "https://www.canlitv.diy/fb-tv"}, {"title": "TRT Spor Yıldız", "url": "https://www.canlitv.diy/trt-spor-2"}, {"title": "Sıfır TV", "url": "https://www.canlitv.diy/sifir-tv"}, {"title": "TJK TV", "url": "https://www.canlitv.diy/tjk"}, {"title": "Tay Tv", "url": "https://www.canlitv.diy/tay-tv"}, {"title": "TLC", "url": "https://www.canlitv.diy/tlc"}, {"title": "DMAX", "url": "https://www.canlitv.diy/dmax-canli-yayin"}, {"title": "TRT Belgesel", "url": "https://www.canlitv.diy/trt-belgesel"}, {"title": "TGRT Belgesel", "url": "https://www.canlitv.diy/tgrt-belgesel"}, {"title": "Yaban TV", "url": "https://www.canlitv.diy/yaban-tv"}, {"title": "CGTN Documentary", "url": "https://www.canlitv.diy/cgtn-documentary"}, {"title": "TRT Çocuk", "url": "https://www.canlitv.diy/trt-cocuk"}, {"title": "Cartoon Network", "url": "https://www.canlitv.diy/cartoon-network"}, {"title": "Diyanet Çocuk", "url": "https://www.canlitv.diy/diyanet-cocuk"}, {"title": "TRT Diyanet Çocuk", "url": "https://www.canlitv.diy/trt-diyanet-cocuk"}, {"title": "Minika Çocuk", "url": "https://www.minikacocuk.com.tr/webtv/canli-yayin", "player": "official"}, {"title": "Spacetoon Kids TV", "url": "https://www.canlitv.diy/spacetoon-kids-tv"}, {"title": "Minika Go", "url": "https://www.canlitv.diy/minika-go-izle"}, {"title": "Zarok TV", "url": "https://www.canlitv.diy/zaroktv"}, {"title": "ARB Güneş TV", "url": "https://www.canlitv.diy/arb-gunes-tv"}, {"title": "İsrail - ABD - İran Savaşı", "url": "https://www.canlitv.diy/israil-abd-iran-savasi"}, {"title": "Lider Haber", "url": "https://www.canlitv.diy/lider-haber-tv"}, {"title": "TGRT Haber", "url": "https://www.canlitv.diy/tgrt-haber"}, {"title": "KRT TV", "url": "https://www.canlitv.diy/krt-tv"}, {"title": "Ulusal Kanal", "url": "https://www.canlitv.diy/ulusal-kanal"}, {"title": "Bengü Türk TV", "url": "https://www.canlitv.diy/bengu-turk"}, {"title": "Bloomberg HT", "url": "https://www.canlitv.diy/bloomberg-ht-tv"}, {"title": "Akit TV", "url": "https://www.canlitv.diy/akit-tv"}, {"title": "Flash Haber Tv", "url": "https://www.canlitv.diy/flash-haber"}, {"title": "Ülke TV", "url": "https://www.canlitv.diy/ulke-tv"}, {"title": "İlke TV", "url": "https://www.canlitv.diy/ilke-tv"}, {"title": "Tele1 TV", "url": "https://www.canlitv.diy/tele1-tv"}, {"title": "A Para", "url": "https://www.canlitv.diy/a-para"}, {"title": "Yol Tv", "url": "https://www.canlitv.diy/yol-tv"}];
+let channels=[];
+const list=document.getElementById('list');
+const search=document.getElementById('search');
+const player=document.getElementById('player');
+const frame=document.getElementById('frame');
+const ptitle=document.getElementById('ptitle');
+const status=document.getElementById('status');
+
+function render(q=''){
+  list.innerHTML='';
+  const a=channels.filter(x=>(x.title||'').toLowerCase().includes(q.toLowerCase()));
+  if(!a.length){list.innerHTML='<div class="empty">Kanal bulunamadı.</div>';return}
+  a.forEach(ch=>{
+    const d=document.createElement('div');
+    d.className='card';
+    const n=document.createElement('div'); n.className='name'; n.textContent=ch.title;
+    const b=document.createElement('button'); b.textContent='Canlı yayını aç';
+    b.onclick=()=>openChannel(ch);
+    d.appendChild(n); d.appendChild(b); list.appendChild(d);
+  });
+}
+
+function openChannel(ch){
+  ptitle.textContent=ch.title;
+  frame.src=ch.url;
+  player.style.display='block';
+}
+function closePlayer(){
+  frame.src='about:blank';
+  player.style.display='none';
+}
+document.getElementById('back').onclick=closePlayer;
+search.oninput=e=>render(e.target.value);
+
+async function loadChannels(){
+  // First try the backend.
+  try{
+    const r=await fetch('/api/channels',{cache:'no-store'});
+    if(r.ok){
+      const x=await r.json();
+      if(x.ok && Array.isArray(x.channels) && x.channels.length){
+        channels=x.channels;
+        status.textContent=channels.length+' kanal';
+        render();
+        return;
+      }
+    }
+  }catch(e){}
+
+  // Backend unavailable: use the same channels.json/static list directly.
+  try{
+    const r=await fetch('/channels.json',{cache:'no-store'});
+    if(r.ok){
+      const x=await r.json();
+      if(Array.isArray(x.channels) && x.channels.length){
+        channels=x.channels;
+        status.textContent=channels.length+' kanal (yedek liste)';
+        render();
+        return;
+      }
+    }
+  }catch(e){}
+
+  // Last-resort embedded list so the UI never becomes empty.
+  channels=STATIC_CHANNELS;
+  status.textContent=channels.length+' kanal';
+  render();
+}
+loadChannels();
+</script>
+</body>
+</html>
