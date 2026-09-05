@@ -1,4 +1,16 @@
-Flask>=3.0,<4
-requests>=2.31,<3
-beautifulsoup4>=4.12,<5
-gunicorn>=23,<24
+{
+  "ok": true,
+  "count": 100,
+  "matches": [
+    {
+      "time": "15:30",
+      "home": "...",
+      "away": "...",
+      "odds": {
+        "1": "...",
+        "X": "...",
+        "2": "..."
+      }
+    }
+  ]
+}
