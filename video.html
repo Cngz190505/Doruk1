@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Canlı TV</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b0b0b;color:#fff;font-family:Arial,sans-serif}
+header{position:sticky;top:0;background:#111;padding:14px;z-index:5}
+h1{font-size:20px;margin:0 0 10px}input{width:100%;padding:12px;border-radius:10px;border:0}
+#list{padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.card{background:#181818;border-radius:12px;padding:12px}
+.name{font-weight:700;margin-bottom:10px}
+button{width:100%;padding:11px;border:0;border-radius:9px;background:#fff;color:#000;font-weight:700}
+#player{display:none;position:fixed;inset:0;background:#000;z-index:20}
+#top{height:52px;background:#111;display:flex;align-items:center;padding:0 10px;gap:10px}
+#back{width:auto;padding:9px 14px}.title{font-weight:700}
+iframe{display:block;width:100%;height:calc(100% - 52px);border:0;background:#000}
+.empty{padding:20px;color:#aaa}
+</style>
+</head>
+<body>
+<header>
+<h1>📺 Canlı TV</h1>
+<input id="search" placeholder="Kanal ara...">
+</header>
+<div id="list"></div>
+
+<div id="player">
+  <div id="top"><button id="back">← Geri</button><div class="title" id="ptitle"></div></div>
+  <iframe id="frame" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
+</div>
+
+<script>
+let channels=[];
+const list=document.getElementById('list');
+const search=document.getElementById('search');
+const player=document.getElementById('player');
+const frame=document.getElementById('frame');
+const ptitle=document.getElementById('ptitle');
+
+function render(q=''){
+  list.innerHTML='';
+  const a=channels.filter(x=>x.title.toLowerCase().includes(q.toLowerCase()));
+  if(!a.length){list.innerHTML='<div class="empty">Kanal bulunamadı.</div>';return}
+  a.forEach(ch=>{
+    const d=document.createElement('div');
+    d.className='card';
+    d.innerHTML='<div class="name"></div><button>Canlı yayını aç</button>';
+    d.querySelector('.name').textContent=ch.title;
+    d.querySelector('button').onclick=()=>openChannel(ch);
+    list.appendChild(d);
+  });
+}
+
+function openChannel(ch){
+  ptitle.textContent=ch.title;
+  frame.src=ch.url;
+  player.style.display='block';
+}
+
+function closePlayer(){
+  frame.src='about:blank';
+  player.style.display='none';
+}
+document.getElementById('back').onclick=closePlayer;
+search.oninput=e=>render(e.target.value);
+
+fetch('/api/channels')
+.then(r=>r.json())
+.then(x=>{channels=x.channels||[];render()})
+.catch(()=>{list.innerHTML='<div class="empty">Kanallar yüklenemedi.</div>'});
+</script>
+</body>
+</html>
