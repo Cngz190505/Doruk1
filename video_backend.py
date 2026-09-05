@@ -1,13 +1,13 @@
 from flask import Flask, jsonify, send_from_directory
 import requests
-from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
 import re
+import html
+from urllib.parse import urljoin, urlparse
 
 app = Flask(__name__, static_folder=".")
 
 SOURCE_URL = "https://www.canlitv.diy/tr"
-VERSION = "canlitv-mobile-v6"
+VERSION = "canlitv-mobile-v7"
 
 HEADERS = {
     "User-Agent": (
@@ -20,129 +20,128 @@ HEADERS = {
 }
 
 
-def valid_host(url):
-    host = urlparse(url).netloc.lower()
-    return host in ("canlitv.diy", "www.canlitv.diy")
+def clean_text(value):
+    value = html.unescape(value)
 
+    # İç HTML etiketlerini temizle
+    value = re.sub(r"<[^>]+>", " ", value)
 
-class Parser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.started = False
-        self.items = []
+    # Fazla boşlukları temizle
+    value = re.sub(r"\s+", " ", value)
 
-        self.in_a = False
-        self.a_url = ""
-        self.a_text = []
-
-    def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-
-        if tag != "a":
-            return
-
-        data = dict(attrs)
-        href = data.get("href", "").strip()
-
-        if not href:
-            return
-
-        url = urljoin(SOURCE_URL, href)
-
-        if not valid_host(url):
-            return
-
-        self.in_a = True
-        self.a_url = url
-        self.a_text = []
-
-    def handle_data(self, data):
-        if self.in_a:
-            text = re.sub(r"\s+", " ", data).strip()
-            if text:
-                self.a_text.append(text)
-
-    def handle_endtag(self, tag):
-        if tag.lower() != "a" or not self.in_a:
-            return
-
-        title = re.sub(
-            r"\s+",
-            " ",
-            " ".join(self.a_text)
-        ).strip()
-
-        url = self.a_url
-
-        self.in_a = False
-        self.a_url = ""
-        self.a_text = []
-
-        if not title:
-            return
-
-        # Listeyi TRT 1 ile başlat
-        if not self.started:
-            if title.casefold() == "trt 1":
-                self.started = True
-                self.items.append({
-                    "title": "TRT 1",
-                    "url": url
-                })
-            return
-
-        # Başladıktan sonra dolu kanal linklerini al
-        self.items.append({
-            "title": title,
-            "url": url
-        })
+    return value.strip()
 
 
 def get_channels():
-    r = requests.get(
+    response = requests.get(
         SOURCE_URL,
         headers=HEADERS,
         timeout=30
     )
 
-    r.raise_for_status()
+    response.raise_for_status()
 
-    parser = Parser()
-    parser.feed(r.text)
+    source = response.text
 
+    # Bütün <a ...>...</a> bloklarını yakala
+    pattern = re.compile(
+        r"<a\b([^>]*)>(.*?)</a\s*>",
+        re.IGNORECASE | re.DOTALL
+    )
+
+    matches = pattern.findall(source)
+
+    anchors = []
+
+    for attrs, body in matches:
+
+        href_match = re.search(
+            r'href\s*=\s*["\']([^"\']+)["\']',
+            attrs,
+            re.IGNORECASE
+        )
+
+        if not href_match:
+            continue
+
+        href = href_match.group(1).strip()
+
+        if not href:
+            continue
+
+        url = urljoin(SOURCE_URL, href)
+
+        parsed = urlparse(url)
+
+        if parsed.netloc.lower() not in (
+            "canlitv.diy",
+            "www.canlitv.diy"
+        ):
+            continue
+
+        title = clean_text(body)
+
+        if not title:
+            continue
+
+        anchors.append({
+            "title": title,
+            "url": url
+        })
+
+    # TRT 1'i bul
+    start = None
+
+    for i, item in enumerate(anchors):
+        if item["title"].casefold() == "trt 1":
+            start = i
+            break
+
+    if start is None:
+        return []
+
+    # TRT 1'den itibaren kanal isimlerini al
     result = []
     seen_urls = set()
     seen_titles = set()
 
-    for item in parser.items:
+    for item in anchors[start:]:
+
         title = item["title"].strip()
         url = item["url"].strip()
 
         if not title or not url:
             continue
 
-        # Ana navigasyon linklerini çıkar
-        path = urlparse(url).path.strip("/").lower()
-
-        blocked = {
-            "",
-            "tr",
-            "tv",
-            "genel-tv-kanallari",
-            "yerel-tv-kanallari",
-            "rating",
+        # Menü / navigasyonları ele
+        blocked_titles = {
+            "canlı tv",
+            "reytingler",
+            "yayın akışları",
             "blog",
+            "televizyonlar",
             "kameralar",
             "favoriler",
+            "genel",
+            "haber",
+            "spor",
+            "belgesel",
+            "çocuk",
+            "dini",
+            "yerel",
         }
 
-        if path in blocked:
+        if title.casefold() in blocked_titles:
+            if result:
+                break
             continue
 
-        title_key = title.casefold()
-
+        # Aynı URL'yi tekrar alma
         if url in seen_urls:
             continue
+
+        # Aynı kanal adını tekrar alma
+        title_key = title.casefold()
 
         if title_key in seen_titles:
             continue
@@ -155,8 +154,8 @@ def get_channels():
             "url": url
         })
 
-        # Kaynak şu an yaklaşık 285 kanal.
-        # Sonsuz şekilde sonraki sayfalara taşmaması için sınır.
+        # Kaynak sayfadaki mevcut kanal listesinin tamamını
+        # alabilecek kadar yüksek sınır.
         if len(result) >= 350:
             break
 
@@ -201,33 +200,6 @@ def channels():
             "ok": False,
             "error": str(e),
             "channels": []
-        }), 502
-
-
-@app.get("/api/debug")
-def debug():
-    try:
-        r = requests.get(
-            SOURCE_URL,
-            headers=HEADERS,
-            timeout=30
-        )
-
-        html = r.text
-
-        return jsonify({
-            "ok": True,
-            "status_code": r.status_code,
-            "bytes": len(html),
-            "has_trt1": "TRT 1" in html,
-            "has_showtv": "Show TV" in html,
-            "has_kanal7": "Kanal 7" in html
-        })
-
-    except Exception as e:
-        return jsonify({
-            "ok": False,
-            "error": str(e)
         }), 502
 
 
