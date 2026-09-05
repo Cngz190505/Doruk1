@@ -7,7 +7,7 @@ import re
 app = Flask(__name__, static_folder=".")
 
 SOURCE_URL = "https://www.canlitv.diy/tr"
-VERSION = "canlitv-mobile-v3"
+VERSION = "canlitv-mobile-v4"
 
 HEADERS = {
     "User-Agent": (
@@ -23,9 +23,11 @@ class ChannelParser(HTMLParser):
 
     def __init__(self):
         super().__init__()
+
         self.items = []
-        self.current_href = None
-        self.current_text = []
+
+        self.active_url = None
+        self.active_text = []
 
     def handle_starttag(self, tag, attrs):
 
@@ -33,59 +35,111 @@ class ChannelParser(HTMLParser):
             return
 
         data = dict(attrs)
+
         href = data.get("href", "")
 
         if not href:
             return
 
         full_url = urljoin(SOURCE_URL, href)
+
         parsed = urlparse(full_url)
 
         if parsed.netloc.lower() != "www.canlitv.diy":
             return
 
-        path = parsed.path.lower()
+        path = parsed.path.strip("/").lower()
 
-        # Kanal sayfaları bu yapıyı kullanıyor:
+        # Sadece kanal sayfaları.
+        # Örnek:
         # /trt1-izle
         # /show-tv-izle-1
         # /kanal-7-izle
         if "-izle" not in path:
             return
 
-        self.current_href = full_url
-        self.current_text = []
+        # Yeni geçerli link başladıysa
+        # önceki linki kapat.
+        if self.active_url is not None:
+            self.save_current()
+
+        self.active_url = full_url
+        self.active_text = []
 
     def handle_data(self, data):
 
-        if self.current_href is None:
+        if self.active_url is None:
             return
 
         text = data.strip()
 
         if text:
-            self.current_text.append(text)
+            self.active_text.append(text)
 
     def handle_endtag(self, tag):
 
         if tag.lower() != "a":
             return
 
-        if self.current_href is None:
+        if self.active_url is not None:
+            self.save_current()
+
+    def save_current(self):
+
+        if self.active_url is None:
             return
 
-        title = " ".join(self.current_text).strip()
+        title = " ".join(self.active_text)
 
-        title = re.sub(r"\s+", " ", title)
+        title = re.sub(r"\s+", " ", title).strip()
 
         if title:
+
             self.items.append({
                 "title": title,
-                "url": self.current_href
+                "url": self.active_url
             })
 
-        self.current_href = None
-        self.current_text = []
+        self.active_url = None
+        self.active_text = []
+
+
+def clean_title(title):
+
+    title = re.sub(r"\s+", " ", title).strip()
+
+    # Bazı program isimlerini kanal isminden ayır.
+    remove_words = [
+        " Ana Haber",
+        " Haber 19",
+        " Akşam Ajansı",
+        " Ana Haber Bülteni"
+    ]
+
+    for word in remove_words:
+
+        if title.endswith(word):
+            title = title[:-len(word)].strip()
+
+    return title
+
+
+def title_from_url(url):
+
+    path = urlparse(url).path.strip("/")
+
+    path = re.sub(
+        r"-izle(?:-\d+)?$",
+        "",
+        path,
+        flags=re.IGNORECASE
+    )
+
+    path = path.replace("-", " ")
+
+    path = re.sub(r"\s+", " ", path).strip()
+
+    return path.title()
 
 
 def get_channels():
@@ -99,41 +153,36 @@ def get_channels():
     response.raise_for_status()
 
     parser = ChannelParser()
+
     parser.feed(response.text)
 
+    # HTML'in sonunda açık kalan bağlantı varsa
+    # onu da kaydet.
+    if parser.active_url is not None:
+        parser.save_current()
+
     result = []
+
     seen_urls = set()
     seen_titles = set()
 
     for item in parser.items:
 
         url = item["url"]
-        title = item["title"]
+
+        title = clean_title(item["title"])
+
+        # Anchor yazısı boşsa URL'den isim oluştur.
+        if not title:
+            title = title_from_url(url)
+
+        if not title:
+            continue
+
+        title_key = title.lower()
 
         if url in seen_urls:
             continue
-
-        # Boş veya anlamsız başlıkları at.
-        if len(title) < 2:
-            continue
-
-        # Program/haber sayfalarını mümkün olduğunca ele.
-        bad_words = [
-            "ana haber",
-            "haber 19",
-            "akşam ajansı",
-            "haber bülteni",
-            "spor gündemi",
-            "günün programı"
-        ]
-
-        lower_title = title.lower()
-
-        if any(word in lower_title for word in bad_words):
-            continue
-
-        # Aynı kanalın tekrarlarını temizle.
-        title_key = lower_title.strip()
 
         if title_key in seen_titles:
             continue
@@ -204,4 +253,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=10000
-    )
+                      )
