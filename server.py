@@ -8,7 +8,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 NESINE_URL = "https://bulten.nesine.com/api/bulten/getprebultenfull"
-VERSION = "nesine-v5"
+VERSION = "nesine-v5-debug"
 CACHE_SECONDS = 15
 
 HEADERS = {
@@ -24,6 +24,7 @@ session.headers.update(HEADERS)
 
 cache = {
     "time": 0,
+    "payload": None,
     "data": None
 }
 
@@ -77,213 +78,14 @@ def normalize_odd(value):
 
     try:
         number = float(match.group(0))
+
         if number > 0:
             return round(number, 2)
+
     except Exception:
         pass
 
     return None
-
-
-def walk_dicts(obj):
-    if isinstance(obj, dict):
-        yield obj
-        for value in obj.values():
-            yield from walk_dicts(value)
-
-    elif isinstance(obj, list):
-        for value in obj:
-            yield from walk_dicts(value)
-
-
-def extract_teams(obj):
-    home = first_value(obj, [
-        "HN",
-        "home",
-        "homeTeam",
-        "homeTeamName",
-        "HomeTeam",
-        "HomeTeamName"
-    ])
-
-    away = first_value(obj, [
-        "AN",
-        "away",
-        "awayTeam",
-        "awayTeamName",
-        "AwayTeam",
-        "AwayTeamName"
-    ])
-
-    if home and away:
-        return clean(home), clean(away)
-
-    return "", ""
-
-
-def market_name(market):
-    if not isinstance(market, dict):
-        return ""
-
-    return clean(first_value(market, [
-        "N",
-        "NAME",
-        "Name",
-        "name",
-        "MN",
-        "MarketName",
-        "marketName",
-        "DESC",
-        "Description",
-        "description",
-        "TITLE",
-        "Title",
-        "title"
-    ]))
-
-
-def outcome_name(outcome):
-    if not isinstance(outcome, dict):
-        return ""
-
-    return clean(first_value(outcome, [
-        "N",
-        "NAME",
-        "Name",
-        "name",
-        "ON",
-        "OutcomeName",
-        "outcomeName",
-        "DESC",
-        "Description",
-        "description",
-        "TITLE",
-        "Title",
-        "title",
-        "S",
-        "SN",
-        "selection",
-        "Selection",
-        "label",
-        "Label"
-    ]))
-
-
-def extract_all_markets(obj):
-    markets = []
-
-    if not isinstance(obj, dict):
-        return markets
-
-    source = obj.get("MA")
-
-    if not isinstance(source, list):
-        return markets
-
-    for market in source:
-        if not isinstance(market, dict):
-            continue
-
-        mtid = clean(first_value(market, [
-            "MTID",
-            "mtid",
-            "MarketTypeId",
-            "marketTypeId"
-        ]))
-
-        name = market_name(market)
-
-        outcomes = market.get("OCA")
-
-        if not isinstance(outcomes, list):
-            outcomes = []
-
-        selections = []
-
-        for index, outcome in enumerate(outcomes):
-            if not isinstance(outcome, dict):
-                continue
-
-            odd = normalize_odd(
-                first_value(outcome, [
-                    "O",
-                    "o",
-                    "Odd",
-                    "odd",
-                    "Odds",
-                    "odds",
-                    "Value",
-                    "value"
-                ])
-            )
-
-            label = outcome_name(outcome)
-
-            if not label:
-                if index == 0:
-                    label = "1"
-                elif index == 1:
-                    label = "X"
-                elif index == 2:
-                    label = "2"
-                else:
-                    label = str(index + 1)
-
-            selections.append({
-                "label": label,
-                "odd": odd
-            })
-
-        if not selections:
-            continue
-
-        markets.append({
-            "mtid": mtid,
-            "name": name,
-            "selections": selections
-        })
-
-    return markets
-
-
-def extract_main_odds(obj):
-    result = {
-        "1": None,
-        "X": None,
-        "2": None
-    }
-
-    markets = obj.get("MA") if isinstance(obj, dict) else None
-
-    if not isinstance(markets, list):
-        return result
-
-    for market in markets:
-        if not isinstance(market, dict):
-            continue
-
-        mtid = clean(market.get("MTID"))
-
-        if mtid != "1":
-            continue
-
-        oca = market.get("OCA")
-
-        if not isinstance(oca, list):
-            continue
-
-        for index, key in enumerate(["1", "X", "2"]):
-            if index >= len(oca):
-                continue
-
-            item = oca[index]
-
-            if isinstance(item, dict):
-                result[key] = normalize_odd(item.get("O"))
-
-        break
-
-    return result
 
 
 def make_league_map(leagues):
@@ -293,6 +95,7 @@ def make_league_map(leagues):
         return result
 
     for league in leagues:
+
         if not isinstance(league, dict):
             continue
 
@@ -321,7 +124,142 @@ def make_league_map(leagues):
     return result
 
 
+def extract_main_odds(obj):
+
+    result = {
+        "1": None,
+        "X": None,
+        "2": None
+    }
+
+    if not isinstance(obj, dict):
+        return result
+
+    markets = obj.get("MA")
+
+    if not isinstance(markets, list):
+        return result
+
+    for market in markets:
+
+        if not isinstance(market, dict):
+            continue
+
+        mtid = clean(market.get("MTID"))
+
+        if mtid != "1":
+            continue
+
+        oca = market.get("OCA")
+
+        if not isinstance(oca, list):
+            continue
+
+        for index, key in enumerate(["1", "X", "2"]):
+
+            if index >= len(oca):
+                continue
+
+            item = oca[index]
+
+            if isinstance(item, dict):
+                result[key] = normalize_odd(
+                    item.get("O")
+                )
+
+        break
+
+    return result
+
+
+def extract_all_markets(obj):
+
+    result = []
+
+    if not isinstance(obj, dict):
+        return result
+
+    markets = obj.get("MA")
+
+    if not isinstance(markets, list):
+        return result
+
+    for market in markets:
+
+        if not isinstance(market, dict):
+            continue
+
+        mtid = clean(market.get("MTID"))
+
+        oca = market.get("OCA")
+
+        if not isinstance(oca, list):
+            oca = []
+
+        selections = []
+
+        for index, item in enumerate(oca):
+
+            if not isinstance(item, dict):
+                continue
+
+            label = first_value(item, [
+                "N",
+                "NAME",
+                "Name",
+                "name",
+                "ON",
+                "OutcomeName",
+                "outcomeName",
+                "DESC",
+                "Description",
+                "description",
+                "TITLE",
+                "Title",
+                "title",
+                "S",
+                "SN"
+            ])
+
+            if not label:
+                label = str(index + 1)
+
+            selections.append({
+                "label": clean(label),
+                "odd": normalize_odd(
+                    item.get("O")
+                )
+            })
+
+        market_name = first_value(market, [
+            "N",
+            "NAME",
+            "Name",
+            "name",
+            "MN",
+            "MarketName",
+            "marketName",
+            "DESC",
+            "Description",
+            "description",
+            "TITLE",
+            "Title",
+            "title"
+        ])
+
+        result.append({
+            "mtid": mtid,
+            "name": clean(market_name),
+            "market_keys": list(market.keys()),
+            "selection_count": len(selections),
+            "selections": selections
+        })
+
+    return result
+
+
 def normalize_match(obj, league_map):
+
     if not isinstance(obj, dict):
         return None
 
@@ -329,58 +267,44 @@ def normalize_match(obj, league_map):
     away = clean(obj.get("AN"))
 
     if not home or not away:
-        home, away = extract_teams(obj)
+        return None
 
-    if not home or not away:
+    code = clean(obj.get("C"))
+
+    if not code:
         return None
 
     date = clean(obj.get("D"))
-
     match_time = clean(obj.get("T"))
 
     league_code = clean(obj.get("LC"))
 
-    league = ""
-
-    if league_code and league_code in league_map:
-        league = clean(league_map[league_code])
+    league = league_map.get(
+        league_code,
+        ""
+    )
 
     if not league:
+
         league = clean(first_value(obj, [
             "LN",
             "league",
             "League",
             "leagueName",
-            "LeagueName",
-            "competition",
-            "Competition"
-        ]))
-
-    code = clean(obj.get("C"))
-
-    if not code:
-        code = clean(first_value(obj, [
-            "code",
-            "Code",
-            "matchCode",
-            "MatchCode",
-            "eventCode",
-            "EventCode",
-            "id",
-            "Id"
+            "LeagueName"
         ]))
 
     markets = extract_all_markets(obj)
 
     return {
-        "home": home,
-        "away": away,
+        "code": code,
         "date": date,
         "time": match_time,
+        "home": home,
+        "away": away,
         "league": league,
         "league_code": league_code,
         "match_name": f"{home} - {away}",
-        "code": code,
         "odds": extract_main_odds(obj),
         "markets": markets,
         "market_count": len(markets),
@@ -389,6 +313,7 @@ def normalize_match(obj, league_map):
 
 
 def parse_nesine(payload):
+
     matches = []
     seen = set()
 
@@ -419,10 +344,16 @@ def parse_nesine(payload):
     if not isinstance(leagues, list):
         leagues = []
 
-    league_map = make_league_map(leagues)
+    league_map = make_league_map(
+        leagues
+    )
 
     for obj in events:
-        match = normalize_match(obj, league_map)
+
+        match = normalize_match(
+            obj,
+            league_map
+        )
 
         if not match:
             continue
@@ -439,6 +370,7 @@ def parse_nesine(payload):
             continue
 
         seen.add(key)
+
         matches.append(match)
 
     matches.sort(
@@ -453,14 +385,15 @@ def parse_nesine(payload):
     return matches
 
 
-def fetch_nesine():
+def fetch_payload():
+
     current_time = time.time()
 
     if (
-        cache["data"] is not None
+        cache["payload"] is not None
         and current_time - cache["time"] < CACHE_SECONDS
     ):
-        return cache["data"]
+        return cache["payload"]
 
     response = session.get(
         NESINE_URL,
@@ -469,20 +402,47 @@ def fetch_nesine():
 
     response.raise_for_status()
 
-    if not response.content:
-        raise ValueError("Nesine boş veri döndürdü")
+    raw = response.content
 
-    text = response.content.decode(
+    if not raw:
+        raise ValueError(
+            "Nesine boş veri döndürdü"
+        )
+
+    text = raw.decode(
         "utf-8-sig",
         errors="replace"
     ).strip()
 
     if not text:
-        raise ValueError("Nesine boş veri döndürdü")
+        raise ValueError(
+            "Nesine boş veri döndürdü"
+        )
 
     payload = json.loads(text)
 
-    matches = parse_nesine(payload)
+    cache["time"] = time.time()
+    cache["payload"] = payload
+    cache["data"] = None
+
+    return payload
+
+
+def fetch_nesine():
+
+    current_time = time.time()
+
+    if (
+        cache["data"] is not None
+        and current_time - cache["time"] < CACHE_SECONDS
+    ):
+        return cache["data"]
+
+    payload = fetch_payload()
+
+    matches = parse_nesine(
+        payload
+    )
 
     result = {
         "ok": True,
@@ -494,19 +454,55 @@ def fetch_nesine():
         "matches": matches
     }
 
-    cache["time"] = time.time()
     cache["data"] = result
 
     return result
 
 
+def find_raw_match(payload, code):
+
+    if not isinstance(payload, dict):
+        return None
+
+    sg = payload.get("sg")
+
+    if not isinstance(sg, dict):
+        sg = payload.get("SG")
+
+    if not isinstance(sg, dict):
+        return None
+
+    events = sg.get("EA")
+
+    if not isinstance(events, list):
+        events = sg.get("ea")
+
+    if not isinstance(events, list):
+        return None
+
+    for obj in events:
+
+        if not isinstance(obj, dict):
+            continue
+
+        if clean(obj.get("C")) == clean(code):
+            return obj
+
+    return None
+
+
 @app.route("/")
 def home():
-    return send_from_directory(".", "index.html")
+
+    return send_from_directory(
+        ".",
+        "index.html"
+    )
 
 
 @app.route("/api/health")
 def health():
+
     return jsonify({
         "ok": True,
         "project": "Nesine Veri Sistemi",
@@ -517,10 +513,15 @@ def health():
 
 @app.route("/api/nesine")
 def nesine():
+
     try:
-        return jsonify(fetch_nesine())
+
+        return jsonify(
+            fetch_nesine()
+        )
 
     except requests.RequestException as error:
+
         return jsonify({
             "ok": False,
             "project": "Nesine Veri Sistemi",
@@ -531,6 +532,7 @@ def nesine():
         }), 502
 
     except Exception as error:
+
         return jsonify({
             "ok": False,
             "project": "Nesine Veri Sistemi",
@@ -541,8 +543,161 @@ def nesine():
         }), 500
 
 
+@app.route("/api/nesine/debug/<code>")
+def debug_match(code):
+
+    try:
+
+        payload = fetch_payload()
+
+        obj = find_raw_match(
+            payload,
+            code
+        )
+
+        if obj is None:
+
+            return jsonify({
+                "ok": False,
+                "error": f"{code} kodlu maç bulunamadı."
+            }), 404
+
+        markets = obj.get("MA")
+
+        if not isinstance(markets, list):
+            markets = []
+
+        debug_markets = []
+
+        for market in markets:
+
+            if not isinstance(market, dict):
+                continue
+
+            oca = market.get("OCA")
+
+            if not isinstance(oca, list):
+                oca = []
+
+            safe_outcomes = []
+
+            for index, outcome in enumerate(oca):
+
+                if not isinstance(outcome, dict):
+                    continue
+
+                values = {}
+
+                for key in outcome.keys():
+
+                    if key in [
+                        "O",
+                        "N",
+                        "NAME",
+                        "Name",
+                        "name",
+                        "ON",
+                        "S",
+                        "SN",
+                        "DESC",
+                        "Description",
+                        "description",
+                        "TITLE",
+                        "Title",
+                        "title",
+                        "V",
+                        "V1",
+                        "V2"
+                    ]:
+
+                        values[key] = outcome[key]
+
+                safe_outcomes.append({
+                    "index": index,
+                    "keys": list(outcome.keys()),
+                    "values": values
+                })
+
+            market_name = first_value(
+                market,
+                [
+                    "N",
+                    "NAME",
+                    "Name",
+                    "name",
+                    "MN",
+                    "MarketName",
+                    "marketName",
+                    "DESC",
+                    "Description",
+                    "description",
+                    "TITLE",
+                    "Title",
+                    "title"
+                ]
+            )
+
+            debug_markets.append({
+                "mtid": clean(
+                    market.get("MTID")
+                ),
+                "market_keys": list(
+                    market.keys()
+                ),
+                "possible_name": market_name,
+                "outcomes": safe_outcomes
+            })
+
+        return jsonify({
+
+            "ok": True,
+
+            "match": {
+                "code": clean(
+                    obj.get("C")
+                ),
+                "date": clean(
+                    obj.get("D")
+                ),
+                "time": clean(
+                    obj.get("T")
+                ),
+                "home": clean(
+                    obj.get("HN")
+                ),
+                "away": clean(
+                    obj.get("AN")
+                ),
+                "league_code": clean(
+                    obj.get("LC")
+                )
+            },
+
+            "market_count": len(
+                debug_markets
+            ),
+
+            "markets": debug_markets
+        })
+
+    except requests.RequestException as error:
+
+        return jsonify({
+            "ok": False,
+            "error": f"Nesine bağlantı hatası: {error}"
+        }), 502
+
+    except Exception as error:
+
+        return jsonify({
+            "ok": False,
+            "error": str(error)
+        }), 500
+
+
 @app.route("/api/version")
 def version():
+
     return jsonify({
         "ok": True,
         "version": VERSION,
@@ -551,6 +706,7 @@ def version():
 
 
 if __name__ == "__main__":
+
     app.run(
         host="0.0.0.0",
         port=5000
