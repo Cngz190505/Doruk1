@@ -1,13 +1,14 @@
 from flask import Flask, jsonify, send_from_directory
 import requests
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlparse
 import re
 import html
-from urllib.parse import urljoin, urlparse
 
 app = Flask(__name__, static_folder=".")
 
 SOURCE_URL = "https://www.canlitv.diy/tr"
-VERSION = "canlitv-mobile-v7"
+VERSION = "canlitv-mobile-v8"
 
 HEADERS = {
     "User-Agent": (
@@ -20,19 +21,204 @@ HEADERS = {
 }
 
 
-def clean_text(value):
-    value = html.unescape(value)
-
-    # İç HTML etiketlerini temizle
+def clean(value):
+    value = html.unescape(value or "")
     value = re.sub(r"<[^>]+>", " ", value)
-
-    # Fazla boşlukları temizle
     value = re.sub(r"\s+", " ", value)
-
     return value.strip()
 
 
+def title_from_url(url):
+    path = urlparse(url).path.strip("/")
+
+    if not path:
+        return ""
+
+    path = re.sub(
+        r"-(?:izle|canli)(?:-\d+)?$",
+        "",
+        path,
+        flags=re.IGNORECASE
+    )
+
+    path = re.sub(
+        r"-izle-\d+$",
+        "",
+        path,
+        flags=re.IGNORECASE
+    )
+
+    path = path.replace("-", " ")
+    path = re.sub(r"\s+", " ", path).strip()
+
+    replacements = {
+        "trt1": "TRT 1",
+        "show tv": "Show TV",
+        "star tv": "Star TV",
+        "kanal7": "Kanal 7",
+        "kanal d": "Kanal D",
+        "now tv": "Now TV",
+        "tv8": "TV8",
+        "ntv": "NTV",
+        "cnn turk": "CNN Türk",
+        "a haber": "A Haber",
+        "a spor": "A Spor",
+    }
+
+    key = path.casefold()
+
+    if key in replacements:
+        return replacements[key]
+
+    return path.title()
+
+
+class ChannelParser(HTMLParser):
+
+    def __init__(self):
+        super().__init__()
+
+        self.started = False
+        self.finished = False
+
+        self.in_a = False
+        self.a_attrs = {}
+        self.a_text = []
+
+        self.in_heading = False
+        self.heading_text = []
+
+        self.items = []
+
+    def handle_starttag(self, tag, attrs):
+
+        tag = tag.lower()
+        attrs = dict(attrs)
+
+        if tag in ("h1", "h2", "h3"):
+            if self.started:
+                self.in_heading = True
+                self.heading_text = []
+            return
+
+        if tag != "a":
+            return
+
+        href = attrs.get("href", "")
+
+        if not href:
+            return
+
+        full_url = urljoin(SOURCE_URL, href)
+
+        host = urlparse(full_url).netloc.lower()
+
+        if host not in ("canlitv.diy", "www.canlitv.diy"):
+            return
+
+        self.in_a = True
+        self.a_attrs = attrs
+        self.a_text = []
+
+    def handle_data(self, data):
+
+        if self.in_heading:
+            text = clean(data)
+
+            if text:
+                self.heading_text.append(text)
+
+        elif self.in_a:
+            text = clean(data)
+
+            if text:
+                self.a_text.append(text)
+
+    def handle_endtag(self, tag):
+
+        tag = tag.lower()
+
+        if tag in ("h1", "h2", "h3") and self.in_heading:
+            self.in_heading = False
+
+            heading = clean(" ".join(self.heading_text)).casefold()
+
+            self.heading_text = []
+
+            if self.started and heading:
+                if heading in (
+                    "canlı tv",
+                    "canli tv",
+                    "aktif izleyiciler",
+                    "son eklenen kanallar"
+                ):
+                    self.finished = True
+
+            return
+
+        if tag != "a" or not self.in_a:
+            return
+
+        attrs = self.a_attrs
+
+        href = attrs.get("href", "")
+        url = urljoin(SOURCE_URL, href)
+
+        text = clean(" ".join(self.a_text))
+
+        # Kanal ismini farklı HTML alanlarından bul
+        title = text
+
+        if not title:
+            for key in (
+                "alt",
+                "title",
+                "data-title",
+                "data-name",
+                "aria-label"
+            ):
+                if attrs.get(key):
+                    title = clean(attrs.get(key))
+                    break
+
+        # Hâlâ isim yoksa URL'den üret
+        if not title:
+            title = title_from_url(url)
+
+        self.in_a = False
+        self.a_attrs = {}
+        self.a_text = []
+
+        if not title:
+            return
+
+        # TRT 1 ile kanal listesini başlat
+        if not self.started:
+
+            if title.casefold() in (
+                "trt 1",
+                "trt1"
+            ):
+                self.started = True
+
+                self.items.append({
+                    "title": "TRT 1",
+                    "url": url
+                })
+
+            return
+
+        if self.finished:
+            return
+
+        self.items.append({
+            "title": title,
+            "url": url
+        })
+
+
 def get_channels():
+
     response = requests.get(
         SOURCE_URL,
         headers=HEADERS,
@@ -41,106 +227,47 @@ def get_channels():
 
     response.raise_for_status()
 
-    source = response.text
+    parser = ChannelParser()
 
-    # Bütün <a ...>...</a> bloklarını yakala
-    pattern = re.compile(
-        r"<a\b([^>]*)>(.*?)</a\s*>",
-        re.IGNORECASE | re.DOTALL
-    )
+    parser.feed(response.text)
 
-    matches = pattern.findall(source)
-
-    anchors = []
-
-    for attrs, body in matches:
-
-        href_match = re.search(
-            r'href\s*=\s*["\']([^"\']+)["\']',
-            attrs,
-            re.IGNORECASE
-        )
-
-        if not href_match:
-            continue
-
-        href = href_match.group(1).strip()
-
-        if not href:
-            continue
-
-        url = urljoin(SOURCE_URL, href)
-
-        parsed = urlparse(url)
-
-        if parsed.netloc.lower() not in (
-            "canlitv.diy",
-            "www.canlitv.diy"
-        ):
-            continue
-
-        title = clean_text(body)
-
-        if not title:
-            continue
-
-        anchors.append({
-            "title": title,
-            "url": url
-        })
-
-    # TRT 1'i bul
-    start = None
-
-    for i, item in enumerate(anchors):
-        if item["title"].casefold() == "trt 1":
-            start = i
-            break
-
-    if start is None:
-        return []
-
-    # TRT 1'den itibaren kanal isimlerini al
     result = []
+
     seen_urls = set()
     seen_titles = set()
 
-    for item in anchors[start:]:
+    blocked = {
+        "canlı tv",
+        "canli tv",
+        "reytingler",
+        "yayın akışları",
+        "blog",
+        "televizyonlar",
+        "kameralar",
+        "favoriler",
+        "genel",
+        "haber",
+        "spor",
+        "belgesel",
+        "çocuk",
+        "dini",
+        "yerel",
+    }
 
-        title = item["title"].strip()
+    for item in parser.items:
+
+        title = clean(item["title"])
         url = item["url"].strip()
 
         if not title or not url:
             continue
 
-        # Menü / navigasyonları ele
-        blocked_titles = {
-            "canlı tv",
-            "reytingler",
-            "yayın akışları",
-            "blog",
-            "televizyonlar",
-            "kameralar",
-            "favoriler",
-            "genel",
-            "haber",
-            "spor",
-            "belgesel",
-            "çocuk",
-            "dini",
-            "yerel",
-        }
-
-        if title.casefold() in blocked_titles:
-            if result:
-                break
+        if title.casefold() in blocked:
             continue
 
-        # Aynı URL'yi tekrar alma
         if url in seen_urls:
             continue
 
-        # Aynı kanal adını tekrar alma
         title_key = title.casefold()
 
         if title_key in seen_titles:
@@ -154,8 +281,6 @@ def get_channels():
             "url": url
         })
 
-        # Kaynak sayfadaki mevcut kanal listesinin tamamını
-        # alabilecek kadar yüksek sınır.
         if len(result) >= 350:
             break
 
@@ -185,7 +310,9 @@ def version():
 
 @app.get("/api/channels")
 def channels():
+
     try:
+
         items = get_channels()
 
         return jsonify({
@@ -196,6 +323,7 @@ def channels():
         })
 
     except Exception as e:
+
         return jsonify({
             "ok": False,
             "error": str(e),
@@ -207,4 +335,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=10000
-    )
+)
