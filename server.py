@@ -1,554 +1,274 @@
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify
 import requests
-from bs4 import BeautifulSoup, NavigableString
-import re
 from datetime import datetime
 
 app = Flask(__name__)
 
-CURRENT_URL = "https://www.sahadan.com/iddaa-programi"
-ARCHIVE_URL = "https://arsiv-origin.sahadan.com/Iddaa/program.aspx"
-LIVE_URL = "https://www.sahadan.com/canli-sonuclar"
-
-VERSION = "doruk-sahadan-live-v6"
-
-TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-ODD_RE = re.compile(r"^(?:\d{1,3}[.,]\d{1,2}|-)$")
-CODE_RE = re.compile(r"^\d{4,6}$")
-
-SCORE_RE = re.compile(
-    r"^\s*(.+?)\s+(\d+)\s*-\s*(\d+)\s+(.+?)\s*$"
-)
-
-SCHEDULED_RE = re.compile(
-    r"^\s*(.+?)\s+v\s+(.+?)\s*$",
-    re.IGNORECASE
-)
-
-MINUTE_RE = re.compile(
-    r"^(?:\d{1,3}(?:\+\d{1,2})?['’]|DUR|MS)$",
-    re.IGNORECASE
-)
+NESINE_URL = "https://bulten.nesine.com/api/bulten/getprebultenfull"
 
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0 Safari/537.36"
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
     ),
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Referer": "https://www.nesine.com/",
     "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
 }
 
 
-def clean(s):
-    return re.sub(
-        r"\s+",
-        " ",
-        (s or "").replace("\xa0", " ")
+# =========================================================
+# YARDIMCI FONKSİYONLAR
+# =========================================================
+
+def clean(value):
+    if value is None:
+        return ""
+
+    return " ".join(
+        str(value)
+        .replace("\xa0", " ")
+        .split()
     ).strip()
 
 
-def norm_odd(s):
-    s = clean(s)
-
-    if not s or s == "-":
+def number(value):
+    if value is None:
         return None
 
-    return s.replace(",", ".")
+    try:
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        value = str(value).strip()
+
+        if not value or value == "-":
+            return None
+
+        value = value.replace(",", ".")
+
+        return float(value)
+
+    except Exception:
+        return None
 
 
-def now_iso():
+def iso_now():
     return datetime.utcnow().isoformat(
         timespec="seconds"
     ) + "Z"
 
 
-def fetch(url, timeout=30):
+# =========================================================
+# NESİNE VERİSİNİ ÇEK
+# =========================================================
+
+def get_nesine_data():
+
     response = requests.get(
-        url,
+        NESINE_URL,
         headers=HEADERS,
-        timeout=timeout
+        timeout=30
     )
 
     response.raise_for_status()
 
-    response.encoding = (
-        response.apparent_encoding
-        or response.encoding
-    )
-
-    return response.text
+    return response.json()
 
 
 # =========================================================
-# IDDAA ARŞİV PARSER
+# 1 / X / 2 ORANLARINI BUL
 # =========================================================
 
-def parse_archive(html):
-    soup = BeautifulSoup(
-        html,
-        "html.parser"
-    )
+def get_match_result_odds(match):
 
-    matches = []
+    result = {
+        "1": None,
+        "X": None,
+        "2": None
+    }
 
-    for tr in soup.find_all("tr"):
+    markets = match.get("MA") or []
 
-        row_text = clean(
-            tr.get_text(
-                " ",
-                strip=True
-            )
+    if isinstance(markets, dict):
+        markets = list(
+            markets.values()
         )
 
-        if not row_text:
+    for market in markets:
+
+        if not isinstance(market, dict):
             continue
 
-        # Saat bul
-        time_match = re.search(
-            r"\b((?:[01]\d|2[0-3]):[0-5]\d)\b",
-            row_text
-        )
+        mtid = str(
+            market.get("MTID", "")
+        ).strip()
 
-        if not time_match:
+        # MTID 1 = Maç Sonucu
+        if mtid != "1":
             continue
 
-        match_time = time_match.group(1)
-
-        after_time = row_text[
-            time_match.end():
-        ].strip()
-
-        # -------------------------------------------------
-        # Ana maç regex'i
-        #
-        # HOME - AWAY SCORE HALF CODE 1 X 2
-        # -------------------------------------------------
-
-        tail_re = re.compile(
-            r"(?P<home>"
-            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
-            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
-            r")"
-            r"\s+-\s+"
-            r"(?P<away>"
-            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
-            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
-            r")"
-            r"\s+"
-            r"(?P<score>\d+\s*-\s*\d+)"
-            r"\s+"
-            r"(?P<half>\d+\s*-\s*\d+)"
-            r"\s+"
-            r"(?P<code>\d{5,6})"
-            r"\s+"
-            r"(?P<o1>\d{1,3}[.,]\d{1,2})"
-            r"\s+"
-            r"(?P<ox>\d{1,3}[.,]\d{1,2})"
-            r"\s+"
-            r"(?P<o2>\d{1,3}[.,]\d{1,2})"
+        outcomes = (
+            market.get("OCA")
+            or []
         )
 
-        found = tail_re.search(after_time)
-
-        # -------------------------------------------------
-        # Daha esnek ikinci parser
-        # -------------------------------------------------
-
-        if not found:
-
-            loose_re = re.compile(
-                r"(?P<home>"
-                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
-                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
-                r")"
-                r"\s+-\s+"
-                r"(?P<away>"
-                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
-                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
-                r")"
-                r"(?:\s+\d+\s*-\s*\d+){0,2}"
-                r"\s+"
-                r"(?P<code>\d{5,6})"
-                r"\s+"
-                r"(?P<o1>\d{1,3}[.,]\d{1,2})"
-                r"\s+"
-                r"(?P<ox>\d{1,3}[.,]\d{1,2})"
-                r"\s+"
-                r"(?P<o2>\d{1,3}[.,]\d{1,2})"
-            )
-
-            found = loose_re.search(
-                after_time
-            )
-
-        if not found:
-            continue
-
-        home = clean(
-            found.group("home")
-        )
-
-        away = clean(
-            found.group("away")
-        )
-
-        # -------------------------------------------------
-        # Yanlış başlık / market kontrolü
-        # -------------------------------------------------
-
-        bad_terms = (
-            "Alt Üst",
-            "Alt/Üst",
-            "Çifte Şans",
-            "Tümü",
-            "Maç Sonucu",
-            "05.09.2026",
-            "06.09.2026",
-            "07.09.2026",
-            "İY MS",
-        )
-
-        if any(
-            term.lower() in home.lower()
-            or term.lower() in away.lower()
-            for term in bad_terms
+        if isinstance(
+            outcomes,
+            dict
         ):
-            continue
+            outcomes = list(
+                outcomes.values()
+            )
 
-        # -------------------------------------------------
-        # Lig bilgisini maçtan önceki alandan al
-        # -------------------------------------------------
+        # Normal yapı:
+        # OCA[0] = 1
+        # OCA[1] = X
+        # OCA[2] = 2
 
-        prefix = after_time[
-            :found.start()
-        ].strip()
+        if len(outcomes) >= 3:
 
-        prefix_parts = prefix.split()
+            result["1"] = number(
+                outcomes[0].get("O")
+            )
 
-        league = (
-            prefix_parts[-1]
-            if prefix_parts
-            else None
-        )
+            result["X"] = number(
+                outcomes[1].get("O")
+            )
 
-        if league and len(league) > 30:
-            league = None
+            result["2"] = number(
+                outcomes[2].get("O")
+            )
 
-        # -------------------------------------------------
-        # 1 / X / 2 oranları
-        # -------------------------------------------------
-
-        odds = {
-            "1": norm_odd(
-                found.group("o1")
-            ),
-            "X": norm_odd(
-                found.group("ox")
-            ),
-            "2": norm_odd(
-                found.group("o2")
-            ),
-        }
-
-        matches.append({
-            "time": match_time,
-            "league": league,
-            "home": home,
-            "away": away,
-            "code": found.group("code"),
-            "odds": odds,
-        })
-
-    # -----------------------------------------------------
-    # Duplicate temizleme
-    # -----------------------------------------------------
-
-    result = []
-    seen = set()
-
-    for match in matches:
-
-        key = (
-            match["time"],
-            match["home"].lower(),
-            match["away"].lower(),
-            match["code"],
-        )
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-        result.append(match)
+        break
 
     return result
 
 
 # =========================================================
-# GÜNCEL IDDAA SAYFASI FALLBACK
+# MAÇLARI TEMİZ JSON'A ÇEVİR
 # =========================================================
 
-def parse_current(html):
+def parse_matches(data):
 
-    soup = BeautifulSoup(
-        html,
-        "html.parser"
+    sg = data.get("sg") or {}
+
+    if not isinstance(sg, dict):
+        return []
+
+    raw_matches = (
+        sg.get("EA")
+        or []
     )
 
-    text = clean(
-        soup.get_text(
-            " ",
-            strip=True
+    if isinstance(
+        raw_matches,
+        dict
+    ):
+        raw_matches = list(
+            raw_matches.values()
         )
+
+    # Ligler
+    leagues = {}
+
+    raw_leagues = (
+        sg.get("LA")
+        or []
     )
+
+    if isinstance(
+        raw_leagues,
+        dict
+    ):
+        raw_leagues = list(
+            raw_leagues.values()
+        )
+
+    for league in raw_leagues:
+
+        if not isinstance(
+            league,
+            dict
+        ):
+            continue
+
+        league_id = str(
+            league.get("LID", "")
+        )
+
+        league_name = clean(
+            league.get("N")
+        )
+
+        if league_id:
+            leagues[league_id] = (
+                league_name
+            )
 
     matches = []
 
-    pattern = re.compile(
-        r"(?P<home>"
-        r"[A-Za-zÇĞİÖŞÜçğıöşü0-9().'&/\- ]{2,80}"
-        r")\s+"
-        r"(?P<time>"
-        r"(?:[01]\d|2[0-3]):[0-5]\d"
-        r")\s+"
-        r"(?P<away>"
-        r"[A-Za-zÇĞİÖŞÜçğıöşü0-9().'&/\- ]{2,80}"
-        r")"
-    )
+    for match in raw_matches:
 
-    for m in pattern.finditer(text):
+        if not isinstance(
+            match,
+            dict
+        ):
+            continue
+
+        # Futbol
+        match_type = match.get(
+            "TYPE"
+        )
+
+        if str(match_type) != "1":
+            continue
 
         home = clean(
-            m.group("home")
+            match.get("HN")
         )
 
         away = clean(
-            m.group("away")
+            match.get("AN")
         )
 
         if not home or not away:
             continue
 
+        league_code = str(
+            match.get("LC", "")
+        )
+
+        league_name = leagues.get(
+            league_code
+        )
+
+        odds = get_match_result_odds(
+            match
+        )
+
         matches.append({
-            "time": m.group("time"),
-            "league": None,
+            "code": match.get("C"),
+            "date": clean(
+                match.get("D")
+            ),
+            "time": clean(
+                match.get("T")
+            ),
             "home": home,
             "away": away,
-            "code": None,
-            "odds": {
-                "1": None,
-                "X": None,
-                "2": None,
-            },
+            "league_code": league_code,
+            "league": league_name,
+            "match_name": clean(
+                match.get("ENO")
+            ),
+            "type": match_type,
+            "odds": odds
         })
 
     return matches
-
-
-# =========================================================
-# CANLI MAÇ DAKİKA / DURUM
-# =========================================================
-
-def nearby_match_state(anchor):
-
-    parent = anchor.parent
-
-    if parent:
-
-        for node in reversed(
-            list(parent.descendants)
-        ):
-
-            if node is anchor:
-                break
-
-            if isinstance(
-                node,
-                NavigableString
-            ):
-
-                value = clean(
-                    str(node)
-                )
-
-                if (
-                    value
-                    and MINUTE_RE.match(value)
-                ):
-                    return value
-
-    count = 0
-
-    for node in anchor.previous_elements:
-
-        if count >= 80:
-            break
-
-        count += 1
-
-        if isinstance(
-            node,
-            NavigableString
-        ):
-
-            value = clean(
-                str(node)
-            )
-
-            if (
-                value
-                and MINUTE_RE.match(value)
-            ):
-                return value
-
-    return None
-
-
-# =========================================================
-# SAHADAN CANLI SKOR PARSER
-# =========================================================
-
-def parse_sahadan_live_matches(html):
-
-    soup = BeautifulSoup(
-        html,
-        "html.parser"
-    )
-
-    results = []
-    seen = set()
-
-    links = soup.find_all(
-        "a",
-        href=re.compile(
-            r"/mac/",
-            re.IGNORECASE
-        )
-    )
-
-    for a in links:
-
-        text = clean(
-            a.get_text(
-                " ",
-                strip=True
-            )
-        )
-
-        if not text:
-            continue
-
-        state = nearby_match_state(a)
-
-        # -------------------------------------------------
-        # SKORLU MAÇ
-        # -------------------------------------------------
-
-        m = SCORE_RE.match(text)
-
-        if m:
-
-            home = clean(
-                m.group(1)
-            )
-
-            home_score = int(
-                m.group(2)
-            )
-
-            away_score = int(
-                m.group(3)
-            )
-
-            away = clean(
-                m.group(4)
-            )
-
-            if not home or not away:
-                continue
-
-            is_finished = (
-                str(state or "").upper()
-                in {"MS", "DUR"}
-            )
-
-            key = (
-                home.lower(),
-                away.lower()
-            )
-
-            if key in seen:
-                continue
-
-            seen.add(key)
-
-            results.append({
-                "home": home,
-                "away": away,
-                "home_score": home_score,
-                "away_score": away_score,
-                "score": (
-                    f"{home_score}-{away_score}"
-                ),
-                "status": (
-                    "finished"
-                    if is_finished
-                    else "live"
-                ),
-                "minute": (
-                    None
-                    if is_finished
-                    else state
-                ),
-                "state": state,
-                "url": None,
-            })
-
-            continue
-
-        # -------------------------------------------------
-        # BAŞLAMAMIŞ MAÇ
-        # -------------------------------------------------
-
-        m = SCHEDULED_RE.match(text)
-
-        if m:
-
-            home = clean(
-                m.group(1)
-            )
-
-            away = clean(
-                m.group(2)
-            )
-
-            if not home or not away:
-                continue
-
-            key = (
-                home.lower(),
-                away.lower()
-            )
-
-            if key in seen:
-                continue
-
-            seen.add(key)
-
-            results.append({
-                "home": home,
-                "away": away,
-                "home_score": None,
-                "away_score": None,
-                "score": None,
-                "status": "scheduled",
-                "minute": None,
-                "state": None,
-                "url": None,
-            })
-
-    return results
 
 
 # =========================================================
@@ -556,25 +276,17 @@ def parse_sahadan_live_matches(html):
 # =========================================================
 
 @app.get("/")
-def index():
-
-    return send_from_directory(
-        ".",
-        "index.html"
-    )
-
-
-# =========================================================
-# VERSION
-# =========================================================
-
-@app.get("/api/version")
-def version():
+def home():
 
     return jsonify({
         "ok": True,
-        "version": VERSION,
-        "service": "iddaa-program-backend",
+        "project": "Nesine Veri Sistemi",
+        "version": "nesine-v1",
+        "message": "Nesine veri servisi çalışıyor.",
+        "endpoints": [
+            "/api/health",
+            "/api/nesine"
+        ]
     })
 
 
@@ -587,237 +299,62 @@ def health():
 
     return jsonify({
         "ok": True,
-        "service": "iddaa-program-backend",
-        "version": VERSION,
-        "time": now_iso(),
+        "project": "Nesine Veri Sistemi",
+        "version": "nesine-v1",
+        "time": iso_now()
     })
 
 
 # =========================================================
-# IDDAA PROGRAM
+# NESİNE API
 # =========================================================
 
-@app.get("/api/iddaa-program")
-def iddaa_program():
-
-    errors = []
-
-    # -----------------------------------------------------
-    # ÖNCE ARŞİV
-    # -----------------------------------------------------
+@app.get("/api/nesine")
+def nesine():
 
     try:
 
-        html = fetch(
-            ARCHIVE_URL,
-            timeout=25
-        )
+        data = get_nesine_data()
 
-        matches = parse_archive(
-            html
-        )
-
-        if matches:
-
-            return jsonify({
-                "ok": True,
-                "count": len(matches),
-                "source": ARCHIVE_URL,
-                "fetched_at": now_iso(),
-                "matches": matches,
-            })
-
-        errors.append(
-            "archive: no matches parsed"
-        )
-
-    except Exception as error:
-
-        errors.append(
-            "archive: " + str(error)
-        )
-
-    # -----------------------------------------------------
-    # ARŞİV ÇALIŞMAZSA GÜNCEL SAYFA
-    # -----------------------------------------------------
-
-    try:
-
-        html = fetch(
-            CURRENT_URL,
-            timeout=25
-        )
-
-        matches = parse_current(
-            html
+        matches = parse_matches(
+            data
         )
 
         return jsonify({
             "ok": True,
+            "source": NESINE_URL,
+            "fetched_at": iso_now(),
             "count": len(matches),
-            "source": CURRENT_URL,
-            "fetched_at": now_iso(),
-            "matches": matches,
-            "fallback_used": True,
-            "notes": errors,
+            "matches": matches
         })
+
+    except requests.exceptions.RequestException as error:
+
+        return jsonify({
+            "ok": False,
+            "error": "Nesine bağlantı hatası",
+            "detail": str(error)
+        }), 502
+
+    except ValueError as error:
+
+        return jsonify({
+            "ok": False,
+            "error": "Nesine JSON verisi okunamadı",
+            "detail": str(error)
+        }), 502
 
     except Exception as error:
 
-        errors.append(
-            "current_page: " + str(error)
-        )
-
         return jsonify({
             "ok": False,
-            "count": 0,
-            "source": CURRENT_URL,
-            "fetched_at": now_iso(),
-            "matches": [],
-            "errors": errors,
-        }), 502
+            "error": "Beklenmeyen hata",
+            "detail": str(error)
+        }), 500
 
 
 # =========================================================
-# SAHADAN CANLI
-# =========================================================
-
-@app.get("/api/sahadan-live")
-def sahadan_live():
-
-    started = datetime.utcnow()
-
-    try:
-
-        html = fetch(
-            LIVE_URL,
-            timeout=20
-        )
-
-        matches = parse_sahadan_live_matches(
-            html
-        )
-
-        live_matches = [
-            m for m in matches
-            if m["status"] == "live"
-        ]
-
-        finished_matches = [
-            m for m in matches
-            if m["status"] == "finished"
-        ]
-
-        scheduled_matches = [
-            m for m in matches
-            if m["status"] == "scheduled"
-        ]
-
-        elapsed = (
-            datetime.utcnow()
-            - started
-        ).total_seconds()
-
-        return jsonify({
-            "ok": True,
-            "version": VERSION,
-            "source": LIVE_URL,
-            "fetched_at": now_iso(),
-            "elapsed_seconds": round(
-                elapsed,
-                3
-            ),
-            "count": len(matches),
-            "live_count": len(
-                live_matches
-            ),
-            "finished_count": len(
-                finished_matches
-            ),
-            "scheduled_count": len(
-                scheduled_matches
-            ),
-            "matches": matches,
-        })
-
-    except Exception as e:
-
-        return jsonify({
-            "ok": False,
-            "version": VERSION,
-            "source": LIVE_URL,
-            "fetched_at": now_iso(),
-            "count": 0,
-            "live_count": 0,
-            "finished_count": 0,
-            "scheduled_count": 0,
-            "matches": [],
-            "error": str(e),
-        }), 502
-
-
-# =========================================================
-# DEBUG
-# =========================================================
-
-@app.get("/api/iddaa-debug")
-def debug():
-
-    result = {
-        "ok": True,
-        "version": VERSION,
-        "sources": [],
-    }
-
-    for name, url in [
-        ("current", CURRENT_URL),
-        ("archive", ARCHIVE_URL),
-    ]:
-
-        try:
-
-            html = fetch(
-                url,
-                timeout=20
-            )
-
-            soup = BeautifulSoup(
-                html,
-                "html.parser"
-            )
-
-            result["sources"].append({
-                "name": name,
-                "url": url,
-                "html_size": len(html),
-                "title": (
-                    clean(
-                        soup.title.get_text()
-                    )
-                    if soup.title
-                    else None
-                ),
-                "archive_matches": len(
-                    parse_archive(html)
-                ),
-                "current_matches": len(
-                    parse_current(html)
-                ),
-            })
-
-        except Exception as e:
-
-            result["sources"].append({
-                "name": name,
-                "url": url,
-                "error": str(e),
-            })
-
-    return jsonify(result)
-
-
-# =========================================================
-# LOCAL
+# ÇALIŞTIR
 # =========================================================
 
 if __name__ == "__main__":
@@ -825,114 +362,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=10000
-            )
-
-# =========================================================
-# NESINE TEST
-# =========================================================
-
-NESINE_URL = "https://bulten.nesine.com/api/bulten/getprebultenfull"
-
-
-@app.get("/api/nesine-test")
-def nesine_test():
-
-    try:
-        response = requests.get(
-            NESINE_URL,
-            headers={
-                "User-Agent": HEADERS["User-Agent"],
-                "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Referer": "https://www.nesine.com/",
-            },
-            timeout=30
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        matches = []
-
-        football_matches = (
-            data.get("sg", {})
-                .get("EA", [])
-        )
-
-        for item in football_matches:
-
-            home = clean(item.get("HN"))
-            away = clean(item.get("AN"))
-
-            if not home or not away:
-                continue
-
-            odds = {
-                "1": None,
-                "X": None,
-                "2": None
-            }
-
-            markets = item.get("MA") or []
-
-            for market in markets:
-
-                # Maç Sonucu marketi
-                if str(
-                    market.get("MTID")
-                ) != "1":
-                    continue
-
-                outcomes = (
-                    market.get("OCA")
-                    or []
-                )
-
-                if len(outcomes) >= 3:
-
-                    odds["1"] = norm_odd(
-                        outcomes[0].get("O")
-                    )
-
-                    odds["X"] = norm_odd(
-                        outcomes[1].get("O")
-                    )
-
-                    odds["2"] = norm_odd(
-                        outcomes[2].get("O")
-                    )
-
-                break
-
-            matches.append({
-                "code": item.get("C"),
-                "date": item.get("D"),
-                "time": item.get("T"),
-                "home": home,
-                "away": away,
-                "league_code": item.get("LC"),
-                "type": item.get("TYPE"),
-                "odds": odds
-            })
-
-            # Test için ilk 20 maç yeterli
-            if len(matches) >= 20:
-                break
-
-        return jsonify({
-            "ok": True,
-            "source": NESINE_URL,
-            "total_source_matches": len(
-                football_matches
-            ),
-            "returned": len(matches),
-            "matches": matches
-        })
-
-    except Exception as e:
-
-        return jsonify({
-            "ok": False,
-            "source": NESINE_URL,
-            "error": str(e)
-        }), 502
+    )
