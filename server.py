@@ -1,88 +1,187 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 import requests
+import re
+import json
+import time
 from datetime import datetime
 
 app = Flask(__name__)
 
 NESINE_URL = "https://bulten.nesine.com/api/bulten/getprebultenfull"
+VERSION = "nesine-v2"
+CACHE_SECONDS = 15
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 "
-        "(KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Linux; Android 10) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/140.0 Mobile Safari/537.36"
     ),
-    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept": "application/json,text/plain,*/*",
     "Referer": "https://www.nesine.com/",
-    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
+    "Origin": "https://www.nesine.com",
+}
+
+session = requests.Session()
+session.headers.update(HEADERS)
+
+cache = {
+    "time": 0,
+    "data": None
 }
 
 
-# =========================================================
-# YARDIMCI FONKSİYONLAR
-# =========================================================
+def now_iso():
+    return datetime.utcnow().replace(
+        microsecond=0
+    ).isoformat() + "Z"
+
 
 def clean(value):
     if value is None:
         return ""
-
-    return " ".join(
-        str(value)
-        .replace("\xa0", " ")
-        .split()
-    ).strip()
+    return re.sub(r"\s+", " ", str(value)).strip()
 
 
-def number(value):
+def first_value(obj, keys):
+    if not isinstance(obj, dict):
+        return None
+
+    lowered = {
+        str(k).lower(): v
+        for k, v in obj.items()
+    }
+
+    for key in keys:
+        if key in obj and obj[key] not in (None, ""):
+            return obj[key]
+
+        key_lower = key.lower()
+
+        if (
+            key_lower in lowered
+            and lowered[key_lower] not in (None, "")
+        ):
+            return lowered[key_lower]
+
+    return None
+
+
+def walk_dicts(obj):
+    if isinstance(obj, dict):
+        yield obj
+
+        for value in obj.values():
+            yield from walk_dicts(value)
+
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from walk_dicts(value)
+
+
+def normalize_odd(value):
     if value is None:
         return None
 
-    try:
-        if isinstance(value, (int, float)):
-            return float(value)
-
-        value = str(value).strip()
-
-        if not value or value == "-":
+    if isinstance(value, (int, float)):
+        if value <= 0:
             return None
 
-        value = value.replace(",", ".")
+        return round(float(value), 2)
 
-        return float(value)
+    text = clean(value).replace(",", ".")
+
+    match = re.search(
+        r"\d+(?:\.\d+)?",
+        text
+    )
+
+    if not match:
+        return None
+
+    try:
+        number = float(match.group(0))
+
+        if number <= 0:
+            return None
+
+        return round(number, 2)
 
     except Exception:
         return None
 
 
-def iso_now():
-    return datetime.utcnow().isoformat(
-        timespec="seconds"
-    ) + "Z"
+def extract_teams(obj):
 
-
-# =========================================================
-# NESİNE VERİSİNİ ÇEK
-# =========================================================
-
-def get_nesine_data():
-
-    response = requests.get(
-        NESINE_URL,
-        headers=HEADERS,
-        timeout=30
+    home = first_value(
+        obj,
+        [
+            "home",
+            "homeTeam",
+            "homeTeamName",
+            "HomeTeam",
+            "HomeTeamName",
+            "team1",
+            "Team1",
+            "competitor1",
+            "Competitor1",
+            "home_name",
+            "homeName",
+        ]
     )
 
-    response.raise_for_status()
+    away = first_value(
+        obj,
+        [
+            "away",
+            "awayTeam",
+            "awayTeamName",
+            "AwayTeam",
+            "AwayTeamName",
+            "team2",
+            "Team2",
+            "competitor2",
+            "Competitor2",
+            "away_name",
+            "awayName",
+        ]
+    )
 
-    return response.json()
+    if home and away:
+        return clean(home), clean(away)
+
+    match_name = first_value(
+        obj,
+        [
+            "match_name",
+            "matchName",
+            "eventName",
+            "EventName",
+            "name",
+            "Name",
+            "match",
+            "Match",
+        ]
+    )
+
+    if match_name:
+
+        parts = re.split(
+            r"\s+-\s+|\s+vs\.?\s+|\s+v\s+",
+            clean(match_name),
+            maxsplit=1
+        )
+
+        if len(parts) == 2:
+            return (
+                clean(parts[0]),
+                clean(parts[1])
+            )
+
+    return "", ""
 
 
-# =========================================================
-# 1 / X / 2 ORANLARINI BUL
-# =========================================================
-
-def get_match_result_odds(match):
+def extract_odds(obj):
 
     result = {
         "1": None,
@@ -90,276 +189,444 @@ def get_match_result_odds(match):
         "2": None
     }
 
-    markets = match.get("MA") or []
+    direct = first_value(
+        obj,
+        [
+            "odds",
+            "Odds",
+            "odd",
+            "Odd",
+            "matchOdds",
+            "match_odds",
+            "mainOdds",
+        ]
+    )
 
-    if isinstance(markets, dict):
-        markets = list(
-            markets.values()
-        )
+    sources = []
 
-    for market in markets:
+    if isinstance(direct, dict):
+        sources.append(direct)
 
-        if not isinstance(market, dict):
+    sources.append(obj)
+
+    for source in sources:
+
+        if not isinstance(source, dict):
             continue
 
-        mtid = str(
-            market.get("MTID", "")
-        ).strip()
+        # 1
+        for key in [
+            "1",
+            "1.0",
+            "homeOdd",
+            "homeOdds",
+            "ms1",
+        ]:
 
-        # MTID 1 = Maç Sonucu
-        if mtid != "1":
-            continue
-
-        outcomes = (
-            market.get("OCA")
-            or []
-        )
-
-        if isinstance(
-            outcomes,
-            dict
-        ):
-            outcomes = list(
-                outcomes.values()
+            odd = normalize_odd(
+                first_value(source, [key])
             )
 
-        # Normal yapı:
-        # OCA[0] = 1
-        # OCA[1] = X
-        # OCA[2] = 2
+            if odd is not None:
+                result["1"] = odd
+                break
 
-        if len(outcomes) >= 3:
+        # X
+        for key in [
+            "X",
+            "x",
+            "draw",
+            "drawOdd",
+            "drawOdds",
+            "msx",
+        ]:
 
-            result["1"] = number(
-                outcomes[0].get("O")
+            odd = normalize_odd(
+                first_value(source, [key])
             )
 
-            result["X"] = number(
-                outcomes[1].get("O")
+            if odd is not None:
+                result["X"] = odd
+                break
+
+        # 2
+        for key in [
+            "2",
+            "2.0",
+            "awayOdd",
+            "awayOdds",
+            "ms2",
+        ]:
+
+            odd = normalize_odd(
+                first_value(source, [key])
             )
 
-            result["2"] = number(
-                outcomes[2].get("O")
+            if odd is not None:
+                result["2"] = odd
+                break
+
+    nested = first_value(
+        obj,
+        [
+            "markets",
+            "Markets",
+            "market",
+            "Market",
+            "outcomes",
+            "Outcomes",
+            "selections",
+            "Selections",
+        ]
+    )
+
+    if isinstance(nested, list):
+
+        for item in nested:
+
+            if not isinstance(item, dict):
+                continue
+
+            label = clean(
+                first_value(
+                    item,
+                    [
+                        "label",
+                        "name",
+                        "Name",
+                        "code",
+                        "Code",
+                        "selection",
+                        "Selection",
+                        "type",
+                        "Type",
+                    ]
+                )
+            ).upper()
+
+            odd = normalize_odd(
+                first_value(
+                    item,
+                    [
+                        "odd",
+                        "Odd",
+                        "odds",
+                        "Odds",
+                        "value",
+                        "Value",
+                        "price",
+                        "Price",
+                    ]
+                )
             )
 
-        break
+            if odd is None:
+                continue
+
+            if label in ("1", "MS1", "HOME"):
+                result["1"] = odd
+
+            elif label in ("X", "MSX", "DRAW"):
+                result["X"] = odd
+
+            elif label in ("2", "MS2", "AWAY"):
+                result["2"] = odd
 
     return result
 
 
-# =========================================================
-# MAÇLARI TEMİZ JSON'A ÇEVİR
-# =========================================================
+def normalize_match(obj):
 
-def parse_matches(data):
+    if not isinstance(obj, dict):
+        return None
 
-    sg = data.get("sg") or {}
+    home, away = extract_teams(obj)
 
-    if not isinstance(sg, dict):
-        return []
+    if not home or not away:
+        return None
 
-    raw_matches = (
-        sg.get("EA")
-        or []
+    if len(home) > 100 or len(away) > 100:
+        return None
+
+    date = clean(
+        first_value(
+            obj,
+            [
+                "date",
+                "Date",
+                "matchDate",
+                "MatchDate",
+                "eventDate",
+                "EventDate",
+            ]
+        )
     )
 
-    if isinstance(
-        raw_matches,
-        dict
-    ):
-        raw_matches = list(
-            raw_matches.values()
+    match_time = clean(
+        first_value(
+            obj,
+            [
+                "time",
+                "Time",
+                "matchTime",
+                "MatchTime",
+                "eventTime",
+                "EventTime",
+            ]
         )
-
-    # Ligler
-    leagues = {}
-
-    raw_leagues = (
-        sg.get("LA")
-        or []
     )
 
-    if isinstance(
-        raw_leagues,
-        dict
-    ):
-        raw_leagues = list(
-            raw_leagues.values()
+    league = clean(
+        first_value(
+            obj,
+            [
+                "league",
+                "League",
+                "leagueName",
+                "LeagueName",
+                "competition",
+                "Competition",
+                "tournament",
+                "Tournament",
+            ]
         )
+    )
 
-    for league in raw_leagues:
-
-        if not isinstance(
-            league,
-            dict
-        ):
-            continue
-
-        league_id = str(
-            league.get("LID", "")
+    league_code = clean(
+        first_value(
+            obj,
+            [
+                "league_code",
+                "leagueCode",
+                "LeagueCode",
+                "competitionCode",
+                "CompetitionCode",
+            ]
         )
+    )
 
-        league_name = clean(
-            league.get("N")
+    code = clean(
+        first_value(
+            obj,
+            [
+                "code",
+                "Code",
+                "matchCode",
+                "MatchCode",
+                "eventCode",
+                "EventCode",
+                "eventId",
+                "EventId",
+                "id",
+                "Id",
+            ]
         )
+    )
 
-        if league_id:
-            leagues[league_id] = (
-                league_name
-            )
+    match_name = clean(
+        first_value(
+            obj,
+            [
+                "match_name",
+                "matchName",
+                "eventName",
+                "EventName",
+            ]
+        )
+    )
+
+    if not match_name:
+        match_name = f"{home} - {away}"
+
+    return {
+        "home": home,
+        "away": away,
+        "date": date,
+        "time": match_time,
+        "league": league,
+        "league_code": league_code,
+        "match_name": match_name,
+        "code": code,
+        "odds": extract_odds(obj),
+        "type": 1
+    }
+
+
+def parse_nesine(payload):
 
     matches = []
+    seen = set()
 
-    for match in raw_matches:
+    for obj in walk_dicts(payload):
 
-        if not isinstance(
-            match,
-            dict
-        ):
+        match = normalize_match(obj)
+
+        if not match:
             continue
 
-        # Futbol
-        match_type = match.get(
-            "TYPE"
+        key = (
+            match["date"],
+            match["time"],
+            match["home"].casefold(),
+            match["away"].casefold(),
+            match["code"],
         )
 
-        if str(match_type) != "1":
+        if key in seen:
             continue
 
-        home = clean(
-            match.get("HN")
+        seen.add(key)
+        matches.append(match)
+
+    matches.sort(
+        key=lambda x: (
+            x.get("date", ""),
+            x.get("time", ""),
+            x.get("league", ""),
+            x.get("home", ""),
         )
-
-        away = clean(
-            match.get("AN")
-        )
-
-        if not home or not away:
-            continue
-
-        league_code = str(
-            match.get("LC", "")
-        )
-
-        league_name = leagues.get(
-            league_code
-        )
-
-        odds = get_match_result_odds(
-            match
-        )
-
-        matches.append({
-            "code": match.get("C"),
-            "date": clean(
-                match.get("D")
-            ),
-            "time": clean(
-                match.get("T")
-            ),
-            "home": home,
-            "away": away,
-            "league_code": league_code,
-            "league": league_name,
-            "match_name": clean(
-                match.get("ENO")
-            ),
-            "type": match_type,
-            "odds": odds
-        })
+    )
 
     return matches
 
 
-# =========================================================
-# ANA SAYFA
-# =========================================================
+def fetch_nesine():
 
-@app.get("/")
-def home():
+    current_time = time.time()
 
-    return jsonify({
+    if (
+        cache["data"] is not None
+        and current_time - cache["time"] < CACHE_SECONDS
+    ):
+        return cache["data"]
+
+    response = session.get(
+        NESINE_URL,
+        timeout=25
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    matches = parse_nesine(payload)
+
+    result = {
         "ok": True,
         "project": "Nesine Veri Sistemi",
-        "version": "nesine-v1",
-        "message": "Nesine veri servisi çalışıyor.",
-        "endpoints": [
-            "/api/health",
-            "/api/nesine"
-        ]
-    })
+        "version": VERSION,
+        "source": NESINE_URL,
+        "fetched_at": now_iso(),
+        "count": len(matches),
+        "matches": matches,
+    }
+
+    cache["time"] = time.time()
+    cache["data"] = result
+
+    return result
 
 
-# =========================================================
+# ------------------------------------------------------------
+# ANA SAYFA
+# ------------------------------------------------------------
+
+@app.route("/")
+def home():
+    return send_from_directory(
+        ".",
+        "index.html"
+    )
+
+
+# ------------------------------------------------------------
 # HEALTH
-# =========================================================
+# ------------------------------------------------------------
 
-@app.get("/api/health")
+@app.route("/api/health")
 def health():
 
     return jsonify({
         "ok": True,
         "project": "Nesine Veri Sistemi",
-        "version": "nesine-v1",
-        "time": iso_now()
+        "version": VERSION,
+        "message": "Nesine veri servisi çalışıyor.",
+        "endpoints": {
+            "/api/health": "Servis durumu",
+            "/api/nesine": "Nesine maç ve oran verileri",
+            "/api/version": "Versiyon"
+        }
     })
 
 
-# =========================================================
-# NESİNE API
-# =========================================================
+# ------------------------------------------------------------
+# NESINE API
+# ------------------------------------------------------------
 
-@app.get("/api/nesine")
+@app.route("/api/nesine")
 def nesine():
 
     try:
 
-        data = get_nesine_data()
-
-        matches = parse_matches(
-            data
+        return jsonify(
+            fetch_nesine()
         )
 
-        return jsonify({
-            "ok": True,
-            "source": NESINE_URL,
-            "fetched_at": iso_now(),
-            "count": len(matches),
-            "matches": matches
-        })
-
-    except requests.exceptions.RequestException as error:
+    except requests.RequestException as error:
 
         return jsonify({
             "ok": False,
-            "error": "Nesine bağlantı hatası",
-            "detail": str(error)
+            "project": "Nesine Veri Sistemi",
+            "version": VERSION,
+            "error": f"Nesine bağlantı hatası: {error}",
+            "count": 0,
+            "matches": []
         }), 502
 
-    except ValueError as error:
+    except (ValueError, json.JSONDecodeError) as error:
 
         return jsonify({
             "ok": False,
-            "error": "Nesine JSON verisi okunamadı",
-            "detail": str(error)
+            "project": "Nesine Veri Sistemi",
+            "version": VERSION,
+            "error": f"Nesine JSON okunamadı: {error}",
+            "count": 0,
+            "matches": []
         }), 502
 
     except Exception as error:
 
         return jsonify({
             "ok": False,
-            "error": "Beklenmeyen hata",
-            "detail": str(error)
+            "project": "Nesine Veri Sistemi",
+            "version": VERSION,
+            "error": str(error),
+            "count": 0,
+            "matches": []
         }), 500
 
 
-# =========================================================
-# ÇALIŞTIR
-# =========================================================
+# ------------------------------------------------------------
+# VERSION
+# ------------------------------------------------------------
+
+@app.route("/api/version")
+def version():
+
+    return jsonify({
+        "ok": True,
+        "version": VERSION,
+        "project": "Nesine Veri Sistemi"
+    })
+
+
+# ------------------------------------------------------------
+# START
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
 
     app.run(
         host="0.0.0.0",
-        port=10000
+        port=5000
     )
