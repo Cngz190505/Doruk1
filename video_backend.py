@@ -7,43 +7,36 @@ import re
 app = Flask(__name__, static_folder=".")
 
 SOURCE_URL = "https://www.canlitv.diy/tr"
-VERSION = "canlitv-mobile-v5"
+VERSION = "canlitv-mobile-v6"
 
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Linux; Android 10) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/140.0 Mobile Safari/537.36"
-    )
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
 }
 
 
-class ChannelParser(HTMLParser):
+def valid_host(url):
+    host = urlparse(url).netloc.lower()
+    return host in ("canlitv.diy", "www.canlitv.diy")
+
+
+class Parser(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.collecting = False
-        self.finished = False
-
-        self.active_url = None
-        self.active_text = []
-
-        self.heading_depth = 0
-        self.heading_text = []
-
+        self.started = False
         self.items = []
+
+        self.in_a = False
+        self.a_url = ""
+        self.a_text = []
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
-
-        # Kanal listesinden sonraki bölümün başladığını yakala
-        if tag in ("h1", "h2", "h3"):
-            if self.collecting and self.items:
-                self.heading_depth = 1
-                self.heading_text = []
-            return
-
-        if self.finished:
-            return
 
         if tag != "a":
             return
@@ -54,115 +47,118 @@ class ChannelParser(HTMLParser):
         if not href:
             return
 
-        full_url = urljoin(SOURCE_URL, href)
-        parsed = urlparse(full_url)
+        url = urljoin(SOURCE_URL, href)
 
-        if parsed.netloc.lower() != "www.canlitv.diy":
+        if not valid_host(url):
             return
 
-        # İlk gerçek kanal TRT 1 ile listeyi başlat
-        if not self.collecting:
-            self.active_url = full_url
-            self.active_text = []
-            return
-
-        self.active_url = full_url
-        self.active_text = []
+        self.in_a = True
+        self.a_url = url
+        self.a_text = []
 
     def handle_data(self, data):
-        text = data.strip()
-
-        if self.heading_depth:
+        if self.in_a:
+            text = re.sub(r"\s+", " ", data).strip()
             if text:
-                self.heading_text.append(text)
-            return
-
-        if self.active_url is not None and text:
-            self.active_text.append(text)
+                self.a_text.append(text)
 
     def handle_endtag(self, tag):
-        tag = tag.lower()
-
-        if tag in ("h1", "h2", "h3") and self.heading_depth:
-            self.heading_depth = 0
-
-            # TRT 1 bulunduysa ve kanal listesi başladıysa
-            # sonraki başlıkta listeyi kapat.
-            if self.items:
-                self.finished = True
-                self.active_url = None
-                self.active_text = []
+        if tag.lower() != "a" or not self.in_a:
             return
 
-        if tag != "a":
+        title = re.sub(
+            r"\s+",
+            " ",
+            " ".join(self.a_text)
+        ).strip()
+
+        url = self.a_url
+
+        self.in_a = False
+        self.a_url = ""
+        self.a_text = []
+
+        if not title:
             return
 
-        if self.active_url is None:
-            return
-
-        title = " ".join(self.active_text)
-        title = re.sub(r"\s+", " ", title).strip()
-
-        # TRT 1'i başlangıç noktası olarak kullan
-        if not self.collecting:
-            if title.lower() == "trt 1":
-                self.collecting = True
+        # Listeyi TRT 1 ile başlat
+        if not self.started:
+            if title.casefold() == "trt 1":
+                self.started = True
                 self.items.append({
                     "title": "TRT 1",
-                    "url": self.active_url
+                    "url": url
                 })
-            self.active_url = None
-            self.active_text = []
             return
 
-        # Kategori linkleri boş olduğu için buraya girmez
-        if title:
-            self.items.append({
-                "title": title,
-                "url": self.active_url
-            })
-
-        self.active_url = None
-        self.active_text = []
+        # Başladıktan sonra dolu kanal linklerini al
+        self.items.append({
+            "title": title,
+            "url": url
+        })
 
 
 def get_channels():
-    response = requests.get(
+    r = requests.get(
         SOURCE_URL,
         headers=HEADERS,
         timeout=30
     )
-    response.raise_for_status()
 
-    parser = ChannelParser()
-    parser.feed(response.text)
+    r.raise_for_status()
+
+    parser = Parser()
+    parser.feed(r.text)
 
     result = []
     seen_urls = set()
     seen_titles = set()
 
     for item in parser.items:
-        url = item["url"]
-        title = re.sub(r"\s+", " ", item["title"]).strip()
+        title = item["title"].strip()
+        url = item["url"].strip()
 
-        if not title:
+        if not title or not url:
             continue
+
+        # Ana navigasyon linklerini çıkar
+        path = urlparse(url).path.strip("/").lower()
+
+        blocked = {
+            "",
+            "tr",
+            "tv",
+            "genel-tv-kanallari",
+            "yerel-tv-kanallari",
+            "rating",
+            "blog",
+            "kameralar",
+            "favoriler",
+        }
+
+        if path in blocked:
+            continue
+
+        title_key = title.casefold()
 
         if url in seen_urls:
             continue
 
-        key = title.lower()
-
-        if key in seen_titles:
+        if title_key in seen_titles:
             continue
 
         seen_urls.add(url)
-        seen_titles.add(key)
+        seen_titles.add(title_key)
 
         result.append({
             "title": title,
             "url": url
         })
+
+        # Kaynak şu an yaklaşık 285 kanal.
+        # Sonsuz şekilde sonraki sayfalara taşmaması için sınır.
+        if len(result) >= 350:
+            break
 
     return result
 
@@ -205,6 +201,33 @@ def channels():
             "ok": False,
             "error": str(e),
             "channels": []
+        }), 502
+
+
+@app.get("/api/debug")
+def debug():
+    try:
+        r = requests.get(
+            SOURCE_URL,
+            headers=HEADERS,
+            timeout=30
+        )
+
+        html = r.text
+
+        return jsonify({
+            "ok": True,
+            "status_code": r.status_code,
+            "bytes": len(html),
+            "has_trt1": "TRT 1" in html,
+            "has_showtv": "Show TV" in html,
+            "has_kanal7": "Kanal 7" in html
+        })
+
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e)
         }), 502
 
 
