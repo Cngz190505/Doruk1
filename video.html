@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Video Merkezi</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#09090c;color:#fff;font-family:Arial,sans-serif}
+header{padding:18px 16px 12px;position:sticky;top:0;background:#09090cf2;z-index:5;border-bottom:1px solid #202027}
+h1{margin:0;font-size:22px}.sub{margin:5px 0 0;color:#90909a;font-size:13px}
+main{padding:14px;max-width:720px;margin:auto}
+.bar{display:flex;gap:8px;margin-bottom:12px}
+input{flex:1;min-width:0;padding:13px;border:1px solid #292932;border-radius:12px;background:#15151b;color:#fff;outline:none}
+button{border:0;border-radius:12px;padding:0 16px;background:#fff;color:#000;font-weight:700}
+.status{font-size:12px;color:#8d8d97;margin:10px 2px}
+.card{background:#15151b;border:1px solid #292932;border-radius:16px;overflow:hidden;margin-bottom:14px}
+.player{aspect-ratio:16/9;background:#000;display:flex;align-items:center;justify-content:center}
+.player iframe{width:100%;height:100%;border:0}
+.no-player{padding:20px;text-align:center;color:#999}
+.info{padding:13px}
+.title{font-size:15px;line-height:1.4;font-weight:700;margin-bottom:10px}
+.open{display:inline-block;background:#282830;color:#fff;text-decoration:none;padding:9px 12px;border-radius:9px;font-size:12px}
+.empty{text-align:center;padding:30px 15px;border:1px dashed #333;border-radius:15px;color:#888}
+</style>
+</head>
+<body>
+<header>
+<h1>🎬 Video Merkezi</h1>
+<div class="sub">Herkese açık video bağlantıları</div>
+</header>
+<main>
+<div class="bar">
+<input id="q" placeholder="Video ara...">
+<button onclick="loadVideos()">Yenile</button>
+</div>
+<div id="status" class="status">Yükleniyor...</div>
+<div id="list" class="empty">Videolar alınıyor...</div>
+</main>
+
+<script>
+let all=[];
+
+async function loadVideos(){
+  const status=document.getElementById("status");
+  const list=document.getElementById("list");
+  status.textContent="Videolar alınıyor...";
+  try{
+    const r=await fetch("/api/videos",{cache:"no-store"});
+    const d=await r.json();
+    if(!d.ok) throw new Error(d.error||"Veri alınamadı");
+    all=d.videos||[];
+    render();
+    status.textContent=all.length+" video bulundu.";
+  }catch(e){
+    status.textContent="Hata";
+    list.className="empty";
+    list.textContent=e.message;
+  }
+}
+
+function youtubeId(url){
+  try{
+    const u=new URL(url);
+    if(u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+    if(u.hostname.includes("youtube.com")){
+      if(u.searchParams.get("v")) return u.searchParams.get("v");
+      const m=u.pathname.match(/\/(?:embed|shorts)\/([^/?]+)/);
+      return m ? m[1] : null;
+    }
+  }catch(e){}
+  return null;
+}
+
+function player(url){
+  const id=youtubeId(url);
+  if(id){
+    return `<div class="player"><iframe src="https://www.youtube.com/embed/${encodeURIComponent(id)}"
+      title="Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allowfullscreen></iframe></div>`;
+  }
+  return `<div class="player"><div class="no-player">Bu kaynak sayfa içinde oynatılamıyor.<br>Videoyu kaynak sitesinde açabilirsin.</div></div>`;
+}
+
+function render(){
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const list=document.getElementById("list");
+  const rows=all.filter(x=>(x.title||"").toLowerCase().includes(q));
+  if(!rows.length){
+    list.className="empty";
+    list.textContent="Sonuç bulunamadı.";
+    return;
+  }
+  list.className="";
+  list.innerHTML=rows.map(x=>`
+    <article class="card">
+      ${player(x.url)}
+      <div class="info">
+        <div class="title">${esc(x.title||"Videos.com videosu")}</div>
+        <a class="open" href="${esc(x.url)}" target="_blank" rel="noopener">Kaynakta aç</a>
+      </div>
+    </article>`).join("");
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+}
+
+document.getElementById("q").addEventListener("input",render);
+loadVideos();
+</script>
+</body>
+</html>
