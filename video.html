@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Canlı TV</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#09090c;color:#fff;font-family:Arial,sans-serif}
+header{padding:18px 16px 12px;position:sticky;top:0;background:#09090cf2;z-index:5;border-bottom:1px solid #202027}
+h1{margin:0;font-size:23px}
+.sub{margin:5px 0 0;color:#92929c;font-size:13px}
+main{padding:14px;max-width:760px;margin:auto}
+.bar{display:flex;gap:8px;margin-bottom:12px}
+input{flex:1;min-width:0;padding:13px;border:1px solid #292932;border-radius:12px;background:#15151b;color:#fff;outline:none}
+button{border:0;border-radius:12px;padding:0 16px;background:#fff;color:#000;font-weight:700}
+.status{font-size:12px;color:#8d8d97;margin:10px 2px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.card{background:#15151b;border:1px solid #292932;border-radius:15px;overflow:hidden}
+.logo{height:105px;background:#101015;display:flex;align-items:center;justify-content:center;font-size:28px}
+.info{padding:12px}
+.title{font-size:15px;line-height:1.35;font-weight:700;min-height:40px}
+.open{display:block;margin-top:10px;text-align:center;background:#282830;color:#fff;text-decoration:none;padding:10px;border-radius:9px;font-size:12px}
+.empty{text-align:center;padding:30px 15px;border:1px dashed #333;border-radius:15px;color:#888}
+@media(max-width:420px){.grid{grid-template-columns:1fr 1fr}.logo{height:92px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>📺 Canlı TV</h1>
+  <div class="sub">CanlıTV kanal listesi</div>
+</header>
+
+<main>
+  <div class="bar">
+    <input id="q" placeholder="Kanal ara...">
+    <button onclick="loadChannels()">Yenile</button>
+  </div>
+
+  <div id="status" class="status">Kanallar yükleniyor...</div>
+  <div id="list" class="empty">Kanallar alınıyor...</div>
+</main>
+
+<script>
+let all=[];
+
+async function loadChannels(){
+  const status=document.getElementById("status");
+  const list=document.getElementById("list");
+  status.textContent="Kanallar alınıyor...";
+  list.className="empty";
+  list.textContent="Yükleniyor...";
+
+  try{
+    const r=await fetch("/api/channels",{cache:"no-store"});
+    const d=await r.json();
+
+    if(!d.ok) throw new Error(d.error||"Kanal listesi alınamadı");
+
+    all=d.channels||[];
+    render();
+    status.textContent=all.length+" kanal bulundu.";
+  }catch(e){
+    status.textContent="Hata";
+    list.className="empty";
+    list.textContent=e.message;
+  }
+}
+
+function render(){
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const list=document.getElementById("list");
+
+  const rows=all.filter(x=>
+    (x.title||"").toLowerCase().includes(q)
+  );
+
+  if(!rows.length){
+    list.className="empty";
+    list.textContent="Kanal bulunamadı.";
+    return;
+  }
+
+  list.className="grid";
+  list.innerHTML=rows.map((x,i)=>`
+    <article class="card">
+      <div class="logo">📺</div>
+      <div class="info">
+        <div class="title">${esc(x.title||"TV Kanalı")}</div>
+        <a class="open" href="${esc(x.url)}" target="_blank" rel="noopener">
+          Canlı yayını aç
+        </a>
+      </div>
+    </article>
+  `).join("");
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g,m=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",
+    '"':"&quot;","'":"&#039;"
+  }[m]));
+}
+
+document.getElementById("q").addEventListener("input",render);
+loadChannels();
+</script>
+</body>
+</html>
