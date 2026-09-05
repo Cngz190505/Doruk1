@@ -3,7 +3,6 @@ import requests
 from bs4 import BeautifulSoup, NavigableString
 import re
 from datetime import datetime
-from urllib.parse import urljoin
 
 app = Flask(__name__)
 
@@ -12,15 +11,6 @@ ARCHIVE_URL = "https://arsiv-origin.sahadan.com/Iddaa/program.aspx"
 LIVE_URL = "https://www.sahadan.com/canli-sonuclar"
 
 VERSION = "doruk-sahadan-live-v6"
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0 Safari/537.36"
-    ),
-    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
-}
 
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 ODD_RE = re.compile(r"^(?:\d{1,3}[.,]\d{1,2}|-)$")
@@ -36,17 +26,35 @@ SCHEDULED_RE = re.compile(
 )
 
 MINUTE_RE = re.compile(
-    r"^(?:\d{1,3}(?:\+\d{1,2})?['’]|DUR|MS|UZ|ERT)$",
+    r"^(?:\d{1,3}(?:\+\d{1,2})?['’]|DUR|MS)$",
     re.IGNORECASE
 )
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0 Safari/537.36"
+    ),
+    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
+}
 
-def clean(value):
+
+def clean(s):
     return re.sub(
         r"\s+",
         " ",
-        (value or "").replace("\xa0", " ")
+        (s or "").replace("\xa0", " ")
     ).strip()
+
+
+def norm_odd(s):
+    s = clean(s)
+
+    if not s or s == "-":
+        return None
+
+    return s.replace(",", ".")
 
 
 def now_iso():
@@ -55,16 +63,7 @@ def now_iso():
     ) + "Z"
 
 
-def norm_odd(value):
-    value = clean(value)
-
-    if not value or value == "-":
-        return None
-
-    return value.replace(",", ".")
-
-
-def fetch(url, timeout=25):
+def fetch(url, timeout=30):
     response = requests.get(
         url,
         headers=HEADERS,
@@ -81,9 +80,9 @@ def fetch(url, timeout=25):
     return response.text
 
 
-# ---------------------------------------------------------
+# =========================================================
 # IDDAA ARŞİV PARSER
-# ---------------------------------------------------------
+# =========================================================
 
 def parse_archive(html):
     soup = BeautifulSoup(
@@ -95,127 +94,175 @@ def parse_archive(html):
 
     for tr in soup.find_all("tr"):
 
-        cells = [
-            clean(cell.get_text(" ", strip=True))
-            for cell in tr.find_all(["td", "th"])
-        ]
+        row_text = clean(
+            tr.get_text(
+                " ",
+                strip=True
+            )
+        )
 
-        cells = [
-            cell for cell in cells
-            if cell
-        ]
-
-        if not cells:
+        if not row_text:
             continue
 
-        time_index = next(
-            (
-                i
-                for i, value in enumerate(cells)
-                if TIME_RE.match(value)
+        # Saat bul
+        time_match = re.search(
+            r"\b((?:[01]\d|2[0-3]):[0-5]\d)\b",
+            row_text
+        )
+
+        if not time_match:
+            continue
+
+        match_time = time_match.group(1)
+
+        after_time = row_text[
+            time_match.end():
+        ].strip()
+
+        # -------------------------------------------------
+        # Ana maç regex'i
+        #
+        # HOME - AWAY SCORE HALF CODE 1 X 2
+        # -------------------------------------------------
+
+        tail_re = re.compile(
+            r"(?P<home>"
+            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
+            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
+            r")"
+            r"\s+-\s+"
+            r"(?P<away>"
+            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
+            r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
+            r")"
+            r"\s+"
+            r"(?P<score>\d+\s*-\s*\d+)"
+            r"\s+"
+            r"(?P<half>\d+\s*-\s*\d+)"
+            r"\s+"
+            r"(?P<code>\d{5,6})"
+            r"\s+"
+            r"(?P<o1>\d{1,3}[.,]\d{1,2})"
+            r"\s+"
+            r"(?P<ox>\d{1,3}[.,]\d{1,2})"
+            r"\s+"
+            r"(?P<o2>\d{1,3}[.,]\d{1,2})"
+        )
+
+        found = tail_re.search(after_time)
+
+        # -------------------------------------------------
+        # Daha esnek ikinci parser
+        # -------------------------------------------------
+
+        if not found:
+
+            loose_re = re.compile(
+                r"(?P<home>"
+                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
+                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
+                r")"
+                r"\s+-\s+"
+                r"(?P<away>"
+                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9]"
+                r"[A-Za-zÇĞİÖŞÜçğıöşü0-9.'’&()/\-_ ]{1,80}?"
+                r")"
+                r"(?:\s+\d+\s*-\s*\d+){0,2}"
+                r"\s+"
+                r"(?P<code>\d{5,6})"
+                r"\s+"
+                r"(?P<o1>\d{1,3}[.,]\d{1,2})"
+                r"\s+"
+                r"(?P<ox>\d{1,3}[.,]\d{1,2})"
+                r"\s+"
+                r"(?P<o2>\d{1,3}[.,]\d{1,2})"
+            )
+
+            found = loose_re.search(
+                after_time
+            )
+
+        if not found:
+            continue
+
+        home = clean(
+            found.group("home")
+        )
+
+        away = clean(
+            found.group("away")
+        )
+
+        # -------------------------------------------------
+        # Yanlış başlık / market kontrolü
+        # -------------------------------------------------
+
+        bad_terms = (
+            "Alt Üst",
+            "Alt/Üst",
+            "Çifte Şans",
+            "Tümü",
+            "Maç Sonucu",
+            "05.09.2026",
+            "06.09.2026",
+            "07.09.2026",
+            "İY MS",
+        )
+
+        if any(
+            term.lower() in home.lower()
+            or term.lower() in away.lower()
+            for term in bad_terms
+        ):
+            continue
+
+        # -------------------------------------------------
+        # Lig bilgisini maçtan önceki alandan al
+        # -------------------------------------------------
+
+        prefix = after_time[
+            :found.start()
+        ].strip()
+
+        prefix_parts = prefix.split()
+
+        league = (
+            prefix_parts[-1]
+            if prefix_parts
+            else None
+        )
+
+        if league and len(league) > 30:
+            league = None
+
+        # -------------------------------------------------
+        # 1 / X / 2 oranları
+        # -------------------------------------------------
+
+        odds = {
+            "1": norm_odd(
+                found.group("o1")
             ),
-            None
-        )
-
-        if time_index is None:
-            continue
-
-        tail = cells[time_index + 1:]
-
-        if len(tail) < 3:
-            continue
-
-        pair_index = next(
-            (
-                i
-                for i, value in enumerate(tail)
-                if " - " in value
-                and len(value) > 5
+            "X": norm_odd(
+                found.group("ox")
             ),
-            None
-        )
-
-        if pair_index is None:
-            continue
-
-        pair = tail[pair_index]
-
-        home, away = pair.split(
-            " - ",
-            1
-        )
-
-        home = clean(home)
-        away = clean(away)
-
-        if not home or not away:
-            continue
-
-        before_pair = tail[:pair_index]
-
-        league = None
-
-        for value in reversed(before_pair):
-            upper = value.upper()
-
-            if upper in {
-                "IMAGE",
-                "İMAGE"
-            }:
-                continue
-
-            if len(value) <= 80:
-                league = value
-                break
-
-        after_pair = tail[pair_index + 1:]
-
-        code_index = next(
-            (
-                i
-                for i, value in enumerate(after_pair)
-                if CODE_RE.match(value)
+            "2": norm_odd(
+                found.group("o2")
             ),
-            None
-        )
-
-        code = None
-        odds = []
-
-        if code_index is not None:
-
-            code = after_pair[code_index]
-
-            for value in after_pair[code_index + 1:]:
-
-                if not ODD_RE.match(value):
-                    continue
-
-                odd = norm_odd(value)
-
-                if odd is None:
-                    continue
-
-                odds.append(odd)
-
-                if len(odds) == 3:
-                    break
-
-        if code is None and not odds:
-            continue
+        }
 
         matches.append({
-            "time": cells[time_index],
+            "time": match_time,
             "league": league,
             "home": home,
             "away": away,
-            "code": code,
-            "odds": {
-                "1": odds[0] if len(odds) > 0 else None,
-                "X": odds[1] if len(odds) > 1 else None,
-                "2": odds[2] if len(odds) > 2 else None,
-            }
+            "code": found.group("code"),
+            "odds": odds,
         })
+
+    # -----------------------------------------------------
+    # Duplicate temizleme
+    # -----------------------------------------------------
 
     result = []
     seen = set()
@@ -224,9 +271,9 @@ def parse_archive(html):
 
         key = (
             match["time"],
-            match["home"],
-            match["away"],
-            match["code"]
+            match["home"].lower(),
+            match["away"].lower(),
+            match["code"],
         )
 
         if key in seen:
@@ -238,9 +285,9 @@ def parse_archive(html):
     return result
 
 
-# ---------------------------------------------------------
-# CURRENT IDDAA PAGE
-# ---------------------------------------------------------
+# =========================================================
+# GÜNCEL IDDAA SAYFASI FALLBACK
+# =========================================================
 
 def parse_current(html):
 
@@ -270,21 +317,21 @@ def parse_current(html):
         r")"
     )
 
-    for match in pattern.finditer(text):
+    for m in pattern.finditer(text):
 
         home = clean(
-            match.group("home")
+            m.group("home")
         )
 
         away = clean(
-            match.group("away")
+            m.group("away")
         )
 
         if not home or not away:
             continue
 
         matches.append({
-            "time": match.group("time"),
+            "time": m.group("time"),
             "league": None,
             "home": home,
             "away": away,
@@ -292,16 +339,16 @@ def parse_current(html):
             "odds": {
                 "1": None,
                 "X": None,
-                "2": None
-            }
+                "2": None,
+            },
         })
 
     return matches
 
 
-# ---------------------------------------------------------
-# SAHADAN CANLI MAÇ DURUMU
-# ---------------------------------------------------------
+# =========================================================
+# CANLI MAÇ DAKİKA / DURUM
+# =========================================================
 
 def nearby_match_state(anchor):
 
@@ -309,9 +356,9 @@ def nearby_match_state(anchor):
 
     if parent:
 
-        nodes = list(parent.descendants)
-
-        for node in reversed(nodes):
+        for node in reversed(
+            list(parent.descendants)
+        ):
 
             if node is anchor:
                 break
@@ -358,6 +405,10 @@ def nearby_match_state(anchor):
     return None
 
 
+# =========================================================
+# SAHADAN CANLI SKOR PARSER
+# =========================================================
+
 def parse_sahadan_live_matches(html):
 
     soup = BeautifulSoup(
@@ -376,10 +427,10 @@ def parse_sahadan_live_matches(html):
         )
     )
 
-    for anchor in links:
+    for a in links:
 
         text = clean(
-            anchor.get_text(
+            a.get_text(
                 " ",
                 strip=True
             )
@@ -388,45 +439,39 @@ def parse_sahadan_live_matches(html):
         if not text:
             continue
 
-        state = nearby_match_state(
-            anchor
-        )
+        state = nearby_match_state(a)
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # SKORLU MAÇ
-        # ---------------------------------------------
+        # -------------------------------------------------
 
-        score_match = SCORE_RE.match(text)
+        m = SCORE_RE.match(text)
 
-        if score_match:
+        if m:
 
             home = clean(
-                score_match.group(1)
+                m.group(1)
             )
 
             home_score = int(
-                score_match.group(2)
+                m.group(2)
             )
 
             away_score = int(
-                score_match.group(3)
+                m.group(3)
             )
 
             away = clean(
-                score_match.group(4)
+                m.group(4)
             )
 
             if not home or not away:
                 continue
 
-            state_upper = str(
-                state or ""
-            ).upper()
-
-            finished = state_upper in {
-                "MS",
-                "DUR"
-            }
+            is_finished = (
+                str(state or "").upper()
+                in {"MS", "DUR"}
+            )
 
             key = (
                 home.lower(),
@@ -448,36 +493,34 @@ def parse_sahadan_live_matches(html):
                 ),
                 "status": (
                     "finished"
-                    if finished
+                    if is_finished
                     else "live"
                 ),
                 "minute": (
                     None
-                    if finished
+                    if is_finished
                     else state
                 ),
                 "state": state,
-                "url": None
+                "url": None,
             })
 
             continue
 
-        # ---------------------------------------------
-        # HENÜZ BAŞLAMAMIŞ MAÇ
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # BAŞLAMAMIŞ MAÇ
+        # -------------------------------------------------
 
-        scheduled_match = SCHEDULED_RE.match(
-            text
-        )
+        m = SCHEDULED_RE.match(text)
 
-        if scheduled_match:
+        if m:
 
             home = clean(
-                scheduled_match.group(1)
+                m.group(1)
             )
 
             away = clean(
-                scheduled_match.group(2)
+                m.group(2)
             )
 
             if not home or not away:
@@ -502,15 +545,15 @@ def parse_sahadan_live_matches(html):
                 "status": "scheduled",
                 "minute": None,
                 "state": None,
-                "url": None
+                "url": None,
             })
 
     return results
 
 
-# ---------------------------------------------------------
+# =========================================================
 # ANA SAYFA
-# ---------------------------------------------------------
+# =========================================================
 
 @app.get("/")
 def index():
@@ -521,23 +564,23 @@ def index():
     )
 
 
-# ---------------------------------------------------------
-# VERSİYON TESTİ
-# ---------------------------------------------------------
+# =========================================================
+# VERSION
+# =========================================================
 
 @app.get("/api/version")
 def version():
 
     return jsonify({
         "ok": True,
+        "version": VERSION,
         "service": "iddaa-program-backend",
-        "version": VERSION
     })
 
 
-# ---------------------------------------------------------
-# SAĞLIK TESTİ
-# ---------------------------------------------------------
+# =========================================================
+# HEALTH
+# =========================================================
 
 @app.get("/api/health")
 def health():
@@ -546,27 +589,31 @@ def health():
         "ok": True,
         "service": "iddaa-program-backend",
         "version": VERSION,
-        "time": now_iso()
+        "time": now_iso(),
     })
 
 
-# ---------------------------------------------------------
-# IDDAA PROGRAMI
-# ---------------------------------------------------------
+# =========================================================
+# IDDAA PROGRAM
+# =========================================================
 
 @app.get("/api/iddaa-program")
 def iddaa_program():
 
     errors = []
 
-    # Önce güncel Sahadan sayfası
+    # -----------------------------------------------------
+    # ÖNCE ARŞİV
+    # -----------------------------------------------------
+
     try:
 
         html = fetch(
-            CURRENT_URL
+            ARCHIVE_URL,
+            timeout=25
         )
 
-        matches = parse_current(
+        matches = parse_archive(
             html
         )
 
@@ -575,48 +622,50 @@ def iddaa_program():
             return jsonify({
                 "ok": True,
                 "count": len(matches),
-                "source": CURRENT_URL,
+                "source": ARCHIVE_URL,
                 "fetched_at": now_iso(),
-                "matches": matches
+                "matches": matches,
             })
 
         errors.append(
-            "current_page: no matches parsed"
+            "archive: no matches parsed"
         )
 
     except Exception as error:
 
         errors.append(
-            "current_page: "
-            + str(error)
+            "archive: " + str(error)
         )
 
-    # Arşiv yedeği
+    # -----------------------------------------------------
+    # ARŞİV ÇALIŞMAZSA GÜNCEL SAYFA
+    # -----------------------------------------------------
+
     try:
 
         html = fetch(
-            ARCHIVE_URL
+            CURRENT_URL,
+            timeout=25
         )
 
-        matches = parse_archive(
+        matches = parse_current(
             html
         )
 
         return jsonify({
             "ok": True,
             "count": len(matches),
-            "source": ARCHIVE_URL,
+            "source": CURRENT_URL,
             "fetched_at": now_iso(),
             "matches": matches,
             "fallback_used": True,
-            "notes": errors
+            "notes": errors,
         })
 
     except Exception as error:
 
         errors.append(
-            "archive: "
-            + str(error)
+            "current_page: " + str(error)
         )
 
         return jsonify({
@@ -625,13 +674,13 @@ def iddaa_program():
             "source": CURRENT_URL,
             "fetched_at": now_iso(),
             "matches": [],
-            "errors": errors
+            "errors": errors,
         }), 502
 
 
-# ---------------------------------------------------------
-# CANLI SKOR
-# ---------------------------------------------------------
+# =========================================================
+# SAHADAN CANLI
+# =========================================================
 
 @app.get("/api/sahadan-live")
 def sahadan_live():
@@ -650,21 +699,18 @@ def sahadan_live():
         )
 
         live_matches = [
-            match
-            for match in matches
-            if match["status"] == "live"
+            m for m in matches
+            if m["status"] == "live"
         ]
 
         finished_matches = [
-            match
-            for match in matches
-            if match["status"] == "finished"
+            m for m in matches
+            if m["status"] == "finished"
         ]
 
         scheduled_matches = [
-            match
-            for match in matches
-            if match["status"] == "scheduled"
+            m for m in matches
+            if m["status"] == "scheduled"
         ]
 
         elapsed = (
@@ -682,13 +728,19 @@ def sahadan_live():
                 3
             ),
             "count": len(matches),
-            "live_count": len(live_matches),
-            "finished_count": len(finished_matches),
-            "scheduled_count": len(scheduled_matches),
-            "matches": matches
+            "live_count": len(
+                live_matches
+            ),
+            "finished_count": len(
+                finished_matches
+            ),
+            "scheduled_count": len(
+                scheduled_matches
+            ),
+            "matches": matches,
         })
 
-    except Exception as error:
+    except Exception as e:
 
         return jsonify({
             "ok": False,
@@ -700,13 +752,13 @@ def sahadan_live():
             "finished_count": 0,
             "scheduled_count": 0,
             "matches": [],
-            "error": str(error)
+            "error": str(e),
         }), 502
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DEBUG
-# ---------------------------------------------------------
+# =========================================================
 
 @app.get("/api/iddaa-debug")
 def debug():
@@ -714,12 +766,12 @@ def debug():
     result = {
         "ok": True,
         "version": VERSION,
-        "sources": []
+        "sources": [],
     }
 
     for name, url in [
         ("current", CURRENT_URL),
-        ("archive", ARCHIVE_URL)
+        ("archive", ARCHIVE_URL),
     ]:
 
         try:
@@ -750,27 +802,27 @@ def debug():
                 ),
                 "current_matches": len(
                     parse_current(html)
-                )
+                ),
             })
 
-        except Exception as error:
+        except Exception as e:
 
             result["sources"].append({
                 "name": name,
                 "url": url,
-                "error": str(error)
+                "error": str(e),
             })
 
     return jsonify(result)
 
 
-# ---------------------------------------------------------
-# ÇALIŞTIR
-# ---------------------------------------------------------
+# =========================================================
+# LOCAL
+# =========================================================
 
 if __name__ == "__main__":
 
     app.run(
         host="0.0.0.0",
         port=10000
-    )
+            )
