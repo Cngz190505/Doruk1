@@ -239,6 +239,10 @@
   details.detay-ac[open] summary::before{content:'▾ ';}
   details.detay-ac[open] summary{border-radius:10px 10px 0 0;margin-bottom:0;}
   details.detay-ac .detay-ic{border:1px solid rgba(0,212,255,0.18);border-top:none;border-radius:0 0 10px 10px;padding:10px;}
+  /* Detay butonunda belirgin ama hafif kaynak tüketimli ışık yanıp sönmesi */
+  @keyframes detayDikkatCek{0%,100%{background:rgba(0,212,255,0.08);border-color:rgba(0,212,255,0.32);}50%{background:rgba(0,212,255,0.42);border-color:rgba(0,212,255,1);}}
+  details.detay-ac summary{animation:detayDikkatCek 0.9s steps(1,end) infinite;}
+  details.detay-ac[open] summary{animation:none;}
   details.arac-kutu{margin-bottom:16px;background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
   details.arac-kutu summary{cursor:pointer;list-style:none;padding:14px;font-size:13px;font-weight:800;color:var(--cyan);}
   details.arac-kutu summary::-webkit-details-marker{display:none;}
@@ -662,42 +666,20 @@ details.detay-ac .detay-ic{padding:9px !important;border-radius:0 0 12px 12px;}
   animation: none !important;
 }
 
-  #sayfaIkramiyeleri{margin-top:20px;padding-top:6px;}
-  /* Panel artık <details> — açılır/kapanır ve öncekinden daha normal boyutlu (küçük ikon,
-     daha küçük başlık, daha az dolgu). Büyük "hero" kart görünümü kaldırıldı. */
-  .sayfa-ikramiye-panel{border:1px solid rgba(251,191,36,.24);border-radius:14px;background:rgba(10,14,14,.55);overflow:hidden;}
-  .sayfa-ikramiye-panel.bos{margin-bottom:8px;}
-  .sayfa-ikramiye-hero{display:flex;align-items:center;gap:9px;padding:10px 11px;cursor:pointer;list-style:none;background:rgba(251,191,36,.035);}
-  .sayfa-ikramiye-hero::-webkit-details-marker{display:none;}
-  .sayfa-ikramiye-hero::after{content:'▸';margin-left:auto;color:var(--gold);font-size:11px;flex:0 0 auto;transition:transform .15s ease;}
-  .sayfa-ikramiye-panel[open] .sayfa-ikramiye-hero{border-bottom:1px solid rgba(255,255,255,.07);}
-  .sayfa-ikramiye-panel[open] .sayfa-ikramiye-hero::after{transform:rotate(90deg);}
-  .sayfa-ikramiye-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.20);font-size:13px;flex:0 0 auto;}
-  .sayfa-ikramiye-baslik{padding:0;font-size:11.5px;font-weight:900;color:var(--gold);letter-spacing:.5px;}
-  .sayfa-ikramiye-alt{padding:1px 0 0;color:var(--txt-dim);font-size:9px;line-height:1.35;}
-  .sayfa-ikramiye-grup{padding:10px 10px 0;}
-  .sayfa-ikramiye-grup:last-child{padding-bottom:10px;}
-  .sayfa-ikramiye-kosu{padding:0 3px 6px;color:var(--cyan);font-size:10px;font-weight:900;letter-spacing:.4px;}
-  .sayfa-ikramiye-kutu{border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(4,10,19,.5);overflow:hidden;}
-  .sayfa-ikramiye-grid,.sayfa-ikramiye-satir{display:grid;grid-template-columns:1.1fr 1.25fr .9fr .9fr;gap:7px;align-items:center;}
-  .sayfa-ikramiye-grid{padding:8px 9px;background:rgba(25,217,255,.06);color:var(--cyan);font-size:7.5px;font-weight:900;letter-spacing:.25px;}
-  .sayfa-ikramiye-satir{padding:9px;border-top:1px solid rgba(255,255,255,.05);font-size:9px;color:var(--txt-dim);line-height:1.3;}
-  .sayfa-ikramiye-satir .tur{color:var(--txt);font-weight:850;}
-  .sayfa-ikramiye-satir .komb{color:#9eb4c9;overflow-wrap:anywhere;}
-  .sayfa-ikramiye-satir .dag,.sayfa-ikramiye-satir .deger{text-align:right;white-space:nowrap;}
-  .sayfa-ikramiye-satir .deger{color:var(--gold);font-weight:950;}
-  @media(max-width:520px){
-    .sayfa-ikramiye-grup{padding-left:7px;padding-right:7px;}
-    .sayfa-ikramiye-grid,.sayfa-ikramiye-satir{grid-template-columns:1.05fr 1.05fr .75fr .78fr;gap:5px;padding-left:7px;padding-right:7px;}
-    .sayfa-ikramiye-grid{font-size:6.8px;}
-    .sayfa-ikramiye-satir{font-size:8.3px;}
-    .sayfa-ikramiye-hero{padding:9px 10px;}
-  }
+  #sayfaIkramiyeleri{margin-top:22px;}
+  .sayfa-ikramiye-kutu{border:1px solid rgba(25,217,255,.20);border-radius:16px;background:linear-gradient(145deg,rgba(12,28,46,.96),rgba(7,15,29,.96));overflow:hidden;}
+  .sayfa-ikramiye-baslik{padding:14px 15px;border-bottom:1px solid rgba(255,255,255,.07);font-size:13px;font-weight:900;color:var(--txt);letter-spacing:.2px;}
+  .sayfa-ikramiye-alt{padding:0 15px 12px;color:var(--txt-dim);font-size:10px;}
+  .sayfa-ikramiye-grid{display:grid;grid-template-columns:1.2fr .95fr .85fr;gap:8px;padding:10px 15px;background:rgba(25,217,255,.07);color:var(--cyan);font-size:9px;font-weight:900;}
+  .sayfa-ikramiye-satir{display:grid;grid-template-columns:1.2fr .95fr .85fr;gap:8px;padding:11px 15px;border-top:1px solid rgba(255,255,255,.055);font-size:10px;color:var(--txt-dim);}
+  .sayfa-ikramiye-satir .tur{color:var(--txt);font-weight:800;}
+  .sayfa-ikramiye-satir .deger{color:var(--gold);font-weight:900;text-align:right;}
+  .sayfa-ikramiye-satir span:nth-child(2){text-align:right;}
+  @media(max-width:520px){.sayfa-ikramiye-grid,.sayfa-ikramiye-satir{grid-template-columns:1.15fr .9fr .8fr;font-size:9px;gap:6px;padding-left:10px;padding-right:10px;}.sayfa-ikramiye-baslik{padding:12px 10px;}.sayfa-ikramiye-alt{padding:0 10px 10px;}}
 </style>
 
 <style id="scroll-performance-fix">
-/* MOBİL KAYDIRMA PERFORMANSI: ağır/sürekli efektleri kapat.
-   Detay başlığındaki tek dikkat ışığı aşağıda düşük maliyetli olarak açık bırakılır. */
+/* MOBİL KAYDIRMA PERFORMANSI: sürekli efektleri ve pahalı katmanları kapat */
 html { scroll-behavior: auto !important; }
 *, *::before, *::after {
   animation: none !important;
@@ -716,62 +698,6 @@ html { scroll-behavior: auto !important; }
 }
 .kosu-kart[open] > summary .kosu-ac-kapat { transform: none !important; }
 .strateji-sonuc-no { box-shadow: none !important; }
-
-/* DETAY DİKKAT IŞIĞI — hafif, yalnızca renk/border değişimi; gölge/transform/filter yok. */
-@keyframes detayIsikYanipSon{
-  0%,100%{background:linear-gradient(135deg,rgba(25,217,255,.08),rgba(25,217,255,.035));border-color:rgba(25,217,255,.28);}
-  50%{background:linear-gradient(135deg,rgba(25,217,255,.38),rgba(25,217,255,.12));border-color:rgba(25,217,255,.95);}
-}
-details.detay-ac:not([open]) > summary{
-  animation:detayIsikYanipSon 1s steps(1,end) infinite !important;
-}
-details.detay-ac[open] > summary{animation:none !important;}
-@media (prefers-reduced-motion: reduce){
-  details.detay-ac:not([open]) > summary{animation:none !important;}
-}
-
-/* PWA kurulum butonu — premium, sade ve mobil uyumlu */
-.giris-kutu .btn-yukle{
-  width:100% !important;
-  min-height:58px !important;
-  margin:0 0 12px !important;
-  padding:0 18px !important;
-  display:flex !important;
-  align-items:center !important;
-  justify-content:center !important;
-  gap:12px !important;
-  box-sizing:border-box !important;
-  border:1px solid rgba(34,211,238,.30) !important;
-  border-radius:16px !important;
-  background:linear-gradient(180deg,#102c43 0%,#0b2034 100%) !important;
-  color:#edfaff !important;
-  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif !important;
-  font-size:15px !important;
-  line-height:1 !important;
-  font-weight:850 !important;
-  letter-spacing:.15px !important;
-  white-space:nowrap !important;
-  overflow:hidden !important;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.055), 0 6px 18px rgba(0,0,0,.18) !important;
-  -webkit-tap-highlight-color:transparent !important;
-  appearance:none !important;
-}
-.giris-kutu .btn-yukle svg{
-  width:21px !important;
-  height:21px !important;
-  flex:0 0 21px !important;
-  color:#35ddf7 !important;
-}
-.giris-kutu .btn-yukle:active{
-  background:#123852 !important;
-  border-color:rgba(34,211,238,.52) !important;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.06) !important;
-}
-.giris-kutu .btn-yukle:disabled{opacity:.6 !important;}
-@media(max-width:420px){
-  .giris-kutu .btn-yukle{min-height:56px !important;font-size:14px !important;border-radius:15px !important;}
-}
-
 </style>
 </head>
 <body>
@@ -1941,27 +1867,13 @@ function bahisSatiriAyristir(parcaHam) {
   const tutar = tutarM[1];
   const etiketBolum = parcaHam.slice(0, parcaHam.length - tutarM[0].length);
 
-  // TJK, N ayaklı Ganyan/Plase havuzlarını Türkçe ünlü uyumuna göre yazar:
-  // 3'lü, 4'lü, 5'li, 6'lı, 7'li, 8'li... Kelime karşılığı ("Beşli" gibi) DEĞİL,
-  // TJK'nin resmi ödeme tablosunda göründüğü BİÇİMİ birebir kullanıyoruz; aksi halde
-  // aynı N'li havuzun 1. ve 2. çekilişi ekranda birbirinden ayırt edilemez oluyordu.
-  const nliEk = (n) => {
-    const ekler = { '2':"2'li", '3':"3'lü", '4':"4'lü", '5':"5'li", '6':"6'lı", '7':"7'li", '8':"8'li", '9':"9'lu", '10':"10'lu" };
-    return ekler[n] || `${n}'li`;
-  };
-  const nliEtiketOlustur = (pool, n, kelime) => `${pool ? pool + '. ' : ''}${nliEk(n)} ${kelime}`;
+  const adlarNli = { '3':'Üçlü Ganyan', '4':'Dörtlü Ganyan', '5':'Beşli Ganyan', '6':'Altılı Ganyan', '7':'Yedili Ganyan' };
   const kaliplar = [
-    // TJK: "1. 7'li Ganyan ...", "4'LÜ GANYAN ..." vb. tüm N'li Ganyan biçimleri.
-    // (\d+)\.  -> varsa havuz numarası (1., 2. gibi); bunu ARTIK KORUYORUZ.
-    { re: /(?:(\d+)\.\s*)?(\d+)\s*['’]?\s*L[İIÜU]\s*GANYAN\s*(.*)$/i,
-      tur: (m) => nliEtiketOlustur(m[1], m[2], 'Ganyan'),
-      detay: (m) => m[3].trim() },
-    // TJK: "7'li Plase" gibi N'li Plase biçimleri de aynı şekilde havuz numarasıyla.
-    { re: /(?:(\d+)\.\s*)?(\d+)\s*['’]?\s*L[İIÜU]\s*PLASE\s*(.*)$/i,
-      tur: (m) => nliEtiketOlustur(m[1], m[2], 'Plase'),
+    // "1. 6'LI GANYAN 5/1,6/2/9/3/6" gibi çoklu ayak jackpot bahisleri (en özgülden genele doğru)
+    { re: /(\d+)\.\s*(\d+)['’]?L[İIÜU]\s*GANYAN\s*(.*)$/i,
+      tur: (m) => adlarNli[m[2]] || `${m[2]}'li Ganyan`,
       detay: (m) => m[3].trim() },
     { re: /SIRALI\s*İKİLİ\s*(.*)$/i, tur: () => 'Sıralı İkili', detay: (m) => m[1].trim() },
-    { re: /SIRALI\s*(?:ÜÇLÜ\s*)?(?:BAHİS\s*)?(.*)$/i, tur: () => 'Sıralı Üçlü', detay: (m) => m[1].trim() },
     { re: /PLASE\s*İKİLİ\s*(.*)$/i, tur: () => 'Plase İkili', detay: (m) => m[1].trim() },
     { re: /ÜÇLÜ\s*BAHİS\s*(.*)$/i, tur: () => 'Üçlü Bahis', detay: (m) => m[1].trim() },
     { re: /(\d+)\.\s*ÇİFTE\s*(.*)$/i, tur: (m) => `${m[1]}. Çifte`, detay: (m) => m[2].trim() },
@@ -2447,25 +2359,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (girdi) girdi.value = bugunIso();
 });
 
-// ============ GENEL HATA GÜVENLİK AĞI ============
-// Daha önce, beklenmedik bir JS hatası (script yüklenememesi, ağ hatası vb.)
-// sessizce konsola düşüyor ve kullanıcı ekranda hiçbir değişiklik görmüyordu.
-// Artık böyle bir hata olursa, "BÜLTENİ GETİR" tuşuna basıldığında veya sayfa
-// çalışırken en azından görünür bir uyarı çıkar.
-window.addEventListener('error', (e) => {
-  const icerik = document.getElementById('icerik');
-  if (icerik && !icerik.innerHTML.trim()) {
-    icerik.innerHTML = `<div class="hata">⚠️ Sayfa hatası: ${e.message || 'bilinmeyen hata'}.<br><small style="opacity:.75">Sayfayı yenileyip tekrar dene.</small></div>`;
-  }
-});
-window.addEventListener('unhandledrejection', (e) => {
-  const icerik = document.getElementById('icerik');
-  if (icerik && !icerik.innerHTML.trim()) {
-    const msg = e.reason && e.reason.message ? e.reason.message : String(e.reason);
-    icerik.innerHTML = `<div class="hata">⚠️ Beklenmeyen hata: ${msg}.<br><small style="opacity:.75">Sayfayı yenileyip tekrar dene.</small></div>`;
-  }
-});
-
 // PWA: dosya bir web sunucusu üzerinden açıldıysa (https/localhost), uygulama kabuğunu
 // (index.html/manifest/ikonlar) önbelleğe alıp "Ana Ekrana Ekle" ile gerçek app gibi
 // çalışmasını sağlar. Doğrudan file:// olarak açılırsa service worker devre dışı kalır,
@@ -2510,45 +2403,30 @@ if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.
 }
 
 async function bulteniGetir() {
-  // Bu fonksiyon artık en baştan itibaren try/catch içinde: önceden, herhangi bir
-  // beklenmedik hata (ör. bir elementin bulunamaması) burada sessizce çöküyor ve
-  // ekranda HİÇBİR şey değişmiyordu. Artık her hata kullanıcıya kırmızı kutu
-  // olarak gösteriliyor, böylece "tuşa basınca hiçbir şey olmuyor" durumu yaşanmaz.
-  const icerikGuvenli = document.getElementById('icerik');
-  try {
-    if (!window.kullaniciYetkili) {
-      // Erişim henüz doğrulanmadıysa (ör. giriş/VIP kontrolü tam yüklenmeden
-      // tuşa basıldıysa) artık sessizce çıkmak yerine kullanıcıyı bilgilendiriyoruz.
-      if (icerikGuvenli) {
-        icerikGuvenli.innerHTML = '<div class="hata">⚠️ Erişim durumun henüz doğrulanamadı. Birkaç saniye bekleyip tekrar dene; sorun devam ederse sayfayı yenile.</div>';
-      }
-      return;
-    }
-    const btn = document.getElementById('btnGetir');
-    const icerik = document.getElementById('icerik');
-    const tarihEl = document.getElementById('tarihInput');
-    if (!btn || !icerik || !tarihEl) {
-      throw new Error('Sayfa öğeleri bulunamadı (btn:' + !!btn + ' icerik:' + !!icerik + ' tarih:' + !!tarihEl + ').');
-    }
-    const tarihIso = tarihEl.value;
+  if (!window.kullaniciYetkili) {
+    return;
+  }
+  const btn = document.getElementById('btnGetir');
+  const icerik = document.getElementById('icerik');
+  const tarihIso = document.getElementById('tarihInput').value;
 
-    if (!tarihIso) {
-      icerik.innerHTML = '<div class="hata">⚠️ Lütfen önce bir tarih seçin.</div>';
-      return;
-    }
+  if (!tarihIso) {
+    icerik.innerHTML = '<div class="hata">⚠️ Lütfen önce bir tarih seçin.</div>';
+    return;
+  }
 
-    SEC_TARIH_ISO = tarihIso;
-    const secilenGosterim = isoyuTjkTarihineCevir(tarihIso);
+  SEC_TARIH_ISO = tarihIso;
+  const secilenGosterim = isoyuTjkTarihineCevir(tarihIso);
 
-    btn.disabled = true;
-    const baslangicZamani = Date.now();
-    icerik.innerHTML = `<div class="kart"><div class="durum" id="getirDurum">⏳ ${secilenGosterim} tarihli program TJK'dan getiriliyor... (0 sn)</div></div>`;
-    const sayacId = setInterval(() => {
-      const el = document.getElementById('getirDurum');
-      if (!el) { clearInterval(sayacId); return; }
-      const gecenSn = Math.floor((Date.now() - baslangicZamani) / 1000);
-      el.textContent = `⏳ ${secilenGosterim} tarihli program TJK'dan getiriliyor... (${gecenSn} sn, hâlâ çalışıyor)`;
-    }, 1000);
+  btn.disabled = true;
+  const baslangicZamani = Date.now();
+  icerik.innerHTML = `<div class="kart"><div class="durum" id="getirDurum">⏳ ${secilenGosterim} tarihli program TJK'dan getiriliyor... (0 sn)</div></div>`;
+  const sayacId = setInterval(() => {
+    const el = document.getElementById('getirDurum');
+    if (!el) { clearInterval(sayacId); return; }
+    const gecenSn = Math.floor((Date.now() - baslangicZamani) / 1000);
+    el.textContent = `⏳ ${secilenGosterim} tarihli program TJK'dan getiriliyor... (${gecenSn} sn, hâlâ çalışıyor)`;
+  }, 1000);
 
   try {
     const { tarih, istenenTarih, sehirler } = await sehirleriGetir(tarihIso);
@@ -2586,15 +2464,6 @@ async function bulteniGetir() {
     icerik.innerHTML = `<div class="hata">⚠️ Bülten alınamadı: ${err.message || 'TJK bağlantı hatası'}.<br><small style="opacity:.75">İnternet bağlantınızı kontrol edip tekrar deneyin.</small></div>`;
   } finally {
     btn.disabled = false;
-  }
-  } catch (disHata) {
-    // Beklenmedik/erken bir hata (ör. bir DOM elemanı bulunamadı) — artık ekran
-    // sessizce aynı kalmak yerine bu hatayı gösteriyor.
-    if (icerikGuvenli) {
-      icerikGuvenli.innerHTML = `<div class="hata">⚠️ Beklenmedik bir hata oluştu: ${disHata && disHata.message ? disHata.message : disHata}.<br><small style="opacity:.75">Bu mesajın ekran görüntüsünü paylaşırsan sorunu daha kolay bulabiliriz.</small></div>`;
-    }
-    const b = document.getElementById('btnGetir');
-    if (b) b.disabled = false;
   }
 }
 
@@ -3105,7 +2974,7 @@ function enIyiKuponlarOlustur(kosular, sonuclar, sayi) {
     <div class="bahis-satir">
       <span class="bahis-tur">${i + 1}. ${b.kosuNo}. Koşu — ${b.tur}</span>
       <span class="bahis-detay">${b.detay || ''}</span>
-      <span class="bahis-tutar">${tjkParaMetni(b.tutar)} ₺</span>
+      <span class="bahis-tutar">${b.tutar} ₺</span>
     </div>`).join('');
   return `<div class="altili-blok" style="margin-bottom:16px;"><b>🏆 En İyi Oynayan Kuponlar (En Yüksek İkramiyeler)</b>${satirlar}</div>`;
 }
@@ -3696,31 +3565,6 @@ function stratejiBlokHtml(strat, kosuSonucu) {
 }
 function puanliAtEtiket(a){ return a ? `${a.no} ${a.isim}` : '—'; }
 
-// TJK ikramiye tutarını resmi görünümde tut: binlik nokta + tam 2 kuruş.
-// Örn. "1.207.087" -> "1.207.087,00"; "181.806,07" aynen korunur.
-function tjkParaMetni(v) {
-  if (v === null || v === undefined) return '';
-  let s = String(v).replace(/\u00a0/g,' ').trim();
-  if (!s || s === '—' || /devretmiştir/i.test(s)) return s;
-  const para = s.replace(/\s*(₺|TL)\s*$/i,'').trim();
-  const temiz = para.replace(/[^0-9.,-]/g,'');
-  if (!temiz) return s;
-  let n;
-  if (temiz.includes(',')) {
-    n = parseFloat(temiz.replace(/\./g,'').replace(',','.'));
-  } else {
-    // Nokta yalnızca binlik ayraç ise kaldır. 2 haneli son parça varsa ondalık kabul et.
-    const parts = temiz.split('.');
-    if (parts.length > 1 && parts[parts.length-1].length <= 2) {
-      n = parseFloat(parts.slice(0,-1).join('') + '.' + parts[parts.length-1]);
-    } else {
-      n = parseFloat(temiz.replace(/\./g,''));
-    }
-  }
-  if (!Number.isFinite(n)) return s;
-  return n.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
-}
-
 function renderKosular(kosular, alan, sonuclar, sehir) {
   sonuclar = sonuclar || {};
   SON_KOSULAR = kosular;
@@ -3964,64 +3808,34 @@ function renderKosular(kosular, alan, sonuclar, sehir) {
       }
     }
 
-    // ÖDEME/İKRAMİYE BİLGİLERİ DETAYLARA KONMAZ.
-    // Hem resmi TJK ödeme tablosunu hem de serbest metinden ayrıştırılan tüm bahisleri
-    // sayfanın EN ALTINDAKİ tek İkramiyeler penceresinde birleştiriyoruz. Aynı bahis
-    // (ör. "1. 5'li Ganyan") iki kaynakta da geçebiliyor: resmi tablo TAM küsüratlı
-    // ikramiye tutarını verir ama kombinasyon/sonuç bilgisi vermez; serbest metin ise
-    // kombinasyonu (ör. "5/6") verir. İkisini AYRI SATIR olarak göstermek yerine, aynı
-    // bahis türü için birleştirip TEK satırda gösteriyoruz — hem küsüratlı tutar hem
-    // kombinasyon bilgisi bir arada, tekrarsız.
-    if (kosuSonucu) {
-      // Karşılaştırma için tür adını sadeleştir: boşluk/kesme işareti/BÜYÜK-küçük harf
-      // farklarını yok say (TJK'nin tablo hücresi ile serbest metni birebir aynı
-      // yazılmayabiliyor, ör. "5'Lİ" / "5'li").
-      const turAnahtari = (s) => String(s || '')
-        .toLocaleLowerCase('tr-TR')
-        .replace(/[’'`]/g, "'")
-        .replace(/\s+/g, ' ')
-        .trim();
+    if (kosuSonucu && kosuSonucu.bahisler && kosuSonucu.bahisler.length) {
+      const satirYap = (b) => `
+        <div class="bahis-satir">
+          <span class="bahis-tur">${b.tur}</span>
+          <span class="bahis-detay">${b.detay || ''}</span>
+          <span class="bahis-tutar">${b.tutar} ₺</span>
+        </div>`;
 
-      const resmi = (kosuSonucu.ikramiyeTablosu || []).map(r => ({
-        tur: r.tur || '', detay: '', dagitilacak: r.dagitilacak || '', ikramiye: r.ikramiye || ''
-      }));
-      const serbest = (kosuSonucu.bahisler || []).map(b => ({
-        tur: b.tur || '', detay: b.detay || '', dagitilacak: '', ikramiye: b.tutar || ''
-      }));
+      const altiliGanyan = kosuSonucu.bahisler.filter(b => b.tur === 'Altılı Ganyan');
+      const digerBahisler = kosuSonucu.bahisler.filter(b => b.tur !== 'Altılı Ganyan');
 
-      // Önce resmi tablo satırlarını temel al (küsüratlı ikramiye + dağıtılacak tutar
-      // burada), sonra aynı bahsin serbest metindeki kombinasyon bilgisini işle.
-      const birlesikMap = new Map();
-      const sira = [];
-      resmi.forEach(r => {
-        const anahtar = turAnahtari(r.tur);
-        if (!anahtar) return;
-        if (!birlesikMap.has(anahtar)) { birlesikMap.set(anahtar, { ...r }); sira.push(anahtar); }
-      });
-      serbest.forEach(s => {
-        const anahtar = turAnahtari(s.tur);
-        if (!anahtar) return;
-        if (birlesikMap.has(anahtar)) {
-          // Aynı bahis resmi tabloda zaten var: sadece eksik olan kombinasyon
-          // detayını ekle, küsüratlı resmi ikramiye tutarına DOKUNMA.
-          const mevcut = birlesikMap.get(anahtar);
-          if (!mevcut.detay && s.detay) mevcut.detay = s.detay;
-        } else {
-          // Resmi tabloda karşılığı yoksa (ör. tablo hiç gelmediyse) serbest metni
-          // olduğu gibi ayrı satır olarak ekle.
-          birlesikMap.set(anahtar, { ...s });
-          sira.push(anahtar);
-        }
-      });
-      const gorunen = sira
-        .map(anahtar => birlesikMap.get(anahtar))
-        .filter(r => r && (r.tur || r.ikramiye || r.dagitilacak));
-      if (gorunen.length) sayfaIkramiyeGruplari.push({ kosuNo: k.no, satirlar: gorunen });
+      if (altiliGanyan.length) {
+        detayIcerik += `<div class="altili-blok"><b>🎰 Altılı Ganyan İkramiyesi</b>${altiliGanyan.map(satirYap).join('')}</div>`;
+      }
+      if (digerBahisler.length) {
+        detayIcerik += `<div class="bahis-blok"><b>💰 Bahis Sonuçları / İkramiyeler</b>${digerBahisler.map(satirYap).join('')}</div>`;
+      }
     }
 
-    // Güven, piyasa/analiz ve sonuç detayları burada kalır; ödeme bilgileri ayrı tutulur.
+    // TJK ödeme tablosu sayfanın EN ALTINDA toplu gösterilir.
+    if (kosuSonucu && kosuSonucu.ikramiyeTablosu && kosuSonucu.ikramiyeTablosu.length) {
+      sayfaIkramiyeGruplari.push({ kosuNo: k.no, satirlar: kosuSonucu.ikramiyeTablosu });
+    }
+
+    // Toplanan tüm ek bilgiler (güven analizi, piyasa/analiz karşılaştırması, tam tabela,
+    // bahis ikramiyeleri) burada tek bir açılır "Koşu Detayları" bölümünde gösteriliyor.
     if (detayIcerik.trim()) {
-      const detayKutusu = `<details class="detay-ac"><summary>🔎 ${k.no}. KOŞU — DETAYLAR (güven, piyasa/analiz ve sonuç)</summary><div class="detay-ic">${detayIcerik}</div></details>`;
+      const detayKutusu = `<details class="detay-ac"><summary>🔎 ${k.no}. KOŞU — DETAYLAR (güven, piyasa/analiz, sonuç ve ikramiyeler)</summary><div class="detay-ic">${detayIcerik}</div></details>`;
       html = html.replace(detayYeri, detayKutusu);
     } else {
       html = html.replace(detayYeri, '');
@@ -4037,17 +3851,12 @@ function renderKosular(kosular, alan, sonuclar, sehir) {
       const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const grupHtml = sayfaIkramiyeGruplari.map(g => {
         const satirlar = g.satirlar.map(r => `
-          <div class="sayfa-ikramiye-satir">
-            <span class="tur">${esc(r.tur)}</span>
-            <span class="komb">${esc(r.detay) || '—'}</span>
-            <span class="dag">${esc(tjkParaMetni(r.dagitilacak)) || '—'}</span>
-            <span class="deger">${esc(tjkParaMetni(r.ikramiye)) || '—'}</span>
-          </div>`).join('');
-        return `<div class="sayfa-ikramiye-grup"><div class="sayfa-ikramiye-kosu">${esc(g.kosuNo)}. KOŞU</div><div class="sayfa-ikramiye-kutu"><div class="sayfa-ikramiye-grid"><span>BAHİS TÜRÜ</span><span>KOMBİNASYON / SONUÇ</span><span>DAĞITILACAK</span><span>İKRAMİYE</span></div>${satirlar}</div></div>`;
+          <div class="sayfa-ikramiye-satir"><span class="tur">${esc(r.tur)}</span><span>${esc(r.dagitilacak) || '—'}</span><span class="deger">${esc(r.ikramiye) || '—'}</span></div>`).join('');
+        return `<div style="margin-top:14px;"><div style="padding:0 2px 7px;color:var(--cyan);font-size:11px;font-weight:900;">${esc(g.kosuNo)}. KOŞU</div><div class="sayfa-ikramiye-kutu"><div class="sayfa-ikramiye-grid"><span>BAHİS TÜRÜ</span><span>DAĞITILACAK TUTAR</span><span>İKRAMİYELER</span></div>${satirlar}</div></div>`;
       }).join('');
-      ikramiyeAlan.innerHTML = `<details class="sayfa-ikramiye-panel"><summary class="sayfa-ikramiye-hero"><div class="sayfa-ikramiye-icon">💰</div><div><div class="sayfa-ikramiye-baslik">İKRAMİYELER</div><div class="sayfa-ikramiye-alt">Geçmişte ve gün içinde tamamlanan koşuların TJK ödeme sonuçları</div></div></summary>${grupHtml}</details>`;
+      ikramiyeAlan.innerHTML = `<div class="sayfa-ikramiye-kutu"><div class="sayfa-ikramiye-baslik">🏆 SONUÇLANAN KOŞULAR — TJK İKRAMİYELERİ</div><div class="sayfa-ikramiye-alt">Gün içinde biten ve geçmişte sonuçlanan koşuların ödeme bilgileri.</div></div>${grupHtml}`;
     } else {
-      ikramiyeAlan.innerHTML = `<details class="sayfa-ikramiye-panel bos"><summary class="sayfa-ikramiye-hero"><div class="sayfa-ikramiye-icon">💰</div><div><div class="sayfa-ikramiye-baslik">İKRAMİYELER</div><div class="sayfa-ikramiye-alt">Sonuçlanan koşul bulununca TJK ödeme bilgileri burada gösterilir.</div></div></summary></details>`;
+      ikramiyeAlan.innerHTML = '';
     }
   }
 }
