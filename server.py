@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -205,6 +205,7 @@ def parse_archive(html):
 
 def parse_current(html):
     soup = BeautifulSoup(html, "html.parser")
+
     text = clean(
         soup.get_text(" ", strip=True)
     )
@@ -254,13 +255,13 @@ def parse_sahadan_live_matches(html):
     results = []
     seen = set()
 
-    # Sahadan canlı sayfasındaki maç linkleri
     links = soup.find_all(
         "a",
         href=re.compile(r"/mac/", re.IGNORECASE)
     )
 
     for a in links:
+
         text = clean(
             a.get_text(" ", strip=True)
         )
@@ -279,9 +280,7 @@ def parse_sahadan_live_matches(html):
             url = None
 
         # -------------------------------------------------
-        # CANLI / SKORLU MAÇ
-        # Örnek:
-        # Newcastle 0 - 1 Bournemouth
+        # CANLI MAÇ
         # -------------------------------------------------
 
         m = SCORE_RE.match(text)
@@ -321,9 +320,7 @@ def parse_sahadan_live_matches(html):
             continue
 
         # -------------------------------------------------
-        # PROGRAMDA OLAN / HENÜZ BAŞLAMAMIŞ MAÇ
-        # Örnek:
-        # Erzurumspor FK v Konyaspor
+        # HENÜZ BAŞLAMAMIŞ MAÇ
         # -------------------------------------------------
 
         m = SCHEDULED_RE.match(text)
@@ -366,16 +363,14 @@ def parse_sahadan_live_matches(html):
 
 @app.get("/")
 def index():
-    return jsonify({
-        "ok": True,
-        "service": "iddaa-program-backend",
-        "version": VERSION,
-        "source": CURRENT_URL
-    })
+    return send_from_directory(
+        ".",
+        "index.html"
+    )
 
 
 # =========================================================
-# VERSION TEST
+# VERSION
 # =========================================================
 
 @app.get("/api/version")
@@ -407,15 +402,22 @@ def health():
 
 @app.get("/api/iddaa-program")
 def iddaa_program():
+
     errors = []
 
-    # 1) Güncel Sahadan
+    # 1. Güncel Sahadan
     try:
-        html = fetch(CURRENT_URL)
 
-        matches = parse_current(html)
+        html = fetch(
+            CURRENT_URL
+        )
+
+        matches = parse_current(
+            html
+        )
 
         if matches:
+
             return jsonify({
                 "ok": True,
                 "count": len(matches),
@@ -429,15 +431,21 @@ def iddaa_program():
         )
 
     except Exception as e:
+
         errors.append(
             "current_page: " + str(e)
         )
 
-    # 2) Eski arşiv kaynak
+    # 2. Arşiv
     try:
-        html = fetch(ARCHIVE_URL)
 
-        matches = parse_archive(html)
+        html = fetch(
+            ARCHIVE_URL
+        )
+
+        matches = parse_archive(
+            html
+        )
 
         return jsonify({
             "ok": True,
@@ -450,6 +458,7 @@ def iddaa_program():
         })
 
     except Exception as e:
+
         errors.append(
             "archive: " + str(e)
         )
@@ -470,9 +479,11 @@ def iddaa_program():
 
 @app.get("/api/sahadan-live")
 def sahadan_live():
+
     started = datetime.utcnow()
 
     try:
+
         html = fetch(
             LIVE_URL,
             timeout=20
@@ -514,6 +525,7 @@ def sahadan_live():
         })
 
     except Exception as e:
+
         return jsonify({
             "ok": False,
             "version": VERSION,
@@ -533,6 +545,7 @@ def sahadan_live():
 
 @app.get("/api/iddaa-debug")
 def debug():
+
     result = {
         "ok": True,
         "version": VERSION,
@@ -545,6 +558,7 @@ def debug():
     ]:
 
         try:
+
             html = fetch(
                 url,
                 timeout=20
@@ -576,6 +590,7 @@ def debug():
             })
 
         except Exception as e:
+
             result["sources"].append({
                 "name": name,
                 "url": url,
@@ -590,6 +605,7 @@ def debug():
 # =========================================================
 
 if __name__ == "__main__":
+
     app.run(
         host="0.0.0.0",
         port=10000
