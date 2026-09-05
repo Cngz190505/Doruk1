@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Video Merkezi</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b0b0f;color:#fff;font-family:Arial,sans-serif}
+header{padding:18px 16px;background:#0b0b0f}h1{margin:0;font-size:22px}p{color:#999;margin:6px 0;font-size:13px}
+main{padding:16px}.search{display:flex;gap:8px;margin-bottom:18px}
+input{flex:1;padding:13px;border:1px solid #292932;border-radius:12px;background:#15151b;color:#fff;outline:none}
+button{border:0;border-radius:12px;padding:0 16px;background:#fff;color:#000;font-weight:700}
+.notice{padding:20px;text-align:center;border:1px dashed #333;border-radius:16px;color:#aaa}
+</style>
+</head>
+<body>
+<header><h1>🎬 Video Merkezi</h1><p>Mobil video arayüzü · v1</p></header>
+<main>
+<div class="search"><input id="search" placeholder="Video ara..."><button onclick="searchVideo()">Ara</button></div>
+<div id="content" class="notice">Video kaynağı henüz bağlanmadı.<br><br>Mobil arayüz ve backend hazır.</div>
+</main>
+<script>
+function searchVideo(){
+ const q=document.getElementById("search").value.trim();
+ document.getElementById("content").textContent=q
+ ? "Arama kaynağı sonraki aşamada bağlanacak: "+q
+ : "Aramak için bir kelime yaz.";
+}
+</script>
+</body>
+</html>
