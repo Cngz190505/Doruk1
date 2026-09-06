@@ -164,6 +164,7 @@
   .gercek-siralama-blok b{color:var(--txt);display:block;margin-bottom:3px;}
   .tabela-ilk4-altinda{margin:2px 0 14px;background:rgba(255,255,255,0.035);border:1px solid var(--border);}
   .agf-sira{display:inline-block;margin-left:6px;padding:2px 9px;border-radius:7px;font-size:14px;font-weight:900;vertical-align:middle;background:rgba(167,139,250,0.14);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);}
+  .coklu-guclu-rozet{display:inline-block;margin-left:6px;padding:2px 9px;border-radius:7px;font-size:12.5px;font-weight:800;vertical-align:middle;background:rgba(251,191,36,0.14);color:#fbbf24;border:1px solid rgba(251,191,36,0.35);}
   .agf-sira.agf-one-cikan{background:rgba(74,222,128,0.14);color:var(--green);border:1px solid rgba(74,222,128,0.4);}
   .bahis-blok{margin-top:8px;font-size:12.5px;color:var(--txt-dim);background:rgba(251,191,36,0.045);border:1px solid rgba(251,191,36,0.15);border-radius:8px;padding:8px 10px;}
   .bahis-blok b{color:var(--txt);display:block;margin-bottom:5px;font-size:13px;}
@@ -302,11 +303,12 @@
   .strateji-satir:first-of-type{border-top:none;}
   .strateji-kilit{display:inline-block;margin-left:5px;padding:2px 7px;border-radius:999px;background:rgba(69,227,154,.14);border:1px solid rgba(69,227,154,.34);color:var(--green);font-weight:900;font-size:10px;}
   .strateji-risk{color:var(--gold);font-weight:800;}
+  .strateji-not{color:var(--txt-dim);font-weight:400;font-size:10.5px;}
   .strateji-surpriz{color:#f7c948;font-weight:900;}
   .strateji-sonuc-no{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 6px;border-radius:50%;background:rgba(69,227,154,.20);border:1.5px solid rgba(69,227,154,.85);color:var(--green);font-weight:950;line-height:1;box-shadow:0 0 10px rgba(69,227,154,.22);vertical-align:middle;}
 
   @media (min-width:900px){body{max-width:1180px;margin:0 auto;padding:24px}.hero-head{padding:22px 24px}.kosu-grid{display:block}.kosu-kart{padding:12px;max-width:100%;}.btn-ana{max-width:320px;display:block;margin-left:auto;margin-right:0}.tarih-sec{max-width:520px}}
-  @media (max-width:560px){body{padding:10px}.hero-head{border-radius:16px;padding:15px}.brand-line{font-size:10px}.brand-pill{font-size:8px}h1{font-size:21.5px}.sub{font-size:11.5px}.kosu-grid{display:block}.kosu-kart{border-radius:14px;padding:8px;margin-bottom:10px}.kosu-no{font-size:13.5px}.kosu-saat{font-size:10px}.kosu-rozet span{font-size:9px;padding:3px 5px}.at-satir{padding:7px 6px;gap:6px}.at-isim{font-size:12px}.at-kriter{font-size:9px}.at-puan{font-size:12.5px}.madalya{font-size:14.5px;width:18px}.ilk4-ozet{font-size:12px}.tahmin-durumu{font-size:8.5px;padding:2px 5px;margin-left:3px}.gercek-sira,.agf-sira{font-size:12.5px;padding:2px 7px;margin-left:3px}}
+  @media (max-width:560px){body{padding:10px}.hero-head{border-radius:16px;padding:15px}.brand-line{font-size:10px}.brand-pill{font-size:8px}h1{font-size:21.5px}.sub{font-size:11.5px}.kosu-grid{display:block}.kosu-kart{border-radius:14px;padding:8px;margin-bottom:10px}.kosu-no{font-size:13.5px}.kosu-saat{font-size:10px}.kosu-rozet span{font-size:9px;padding:3px 5px}.at-satir{padding:7px 6px;gap:6px}.at-isim{font-size:12px}.at-kriter{font-size:9px}.at-puan{font-size:12.5px}.madalya{font-size:14.5px;width:18px}.ilk4-ozet{font-size:12px}.tahmin-durumu{font-size:8.5px;padding:2px 5px;margin-left:3px}.gercek-sira,.agf-sira,.coklu-guclu-rozet{font-size:12.5px;padding:2px 7px;margin-left:3px}}
 
 
 /* Koşu akordeonu */
@@ -2446,6 +2448,13 @@ function bizimTaktikPuanla(kosu) {
     const taktikSira = i + 1;
     a.taktikSira = taktikSira;
     a.agfOneCikan = a.agfSira !== null && a.agfSira <= 3 && (taktikSira - a.agfSira) >= 3;
+    // ÇOKLU GÜÇLÜ KRİTER: at ilk4 tahmininin dışında kaldığı halde en az 2 farklı kriterde
+    // çok yüksek (percentile>=90) puan almışsa, ağırlıklı ortalamaya "gömülmüş" olabilir.
+    // 🎲 Sürpriz sinyalinden farkı: orada TEK kriterde tavan aranır, burada BİRDEN FAZLA
+    // kriterin AYNI ANDA tavan yapması aranır (ör. Form:100 + Sıklet:100 ama diğerleri zayıf).
+    const gucluKriterler = (a.kriterListesi || []).filter(k => k.p >= 90).map(k => k.ad);
+    a.cokluGucluKriterler = gucluKriterler;
+    a.cokluGucluUyari = gucluKriterler.length >= 2 && taktikSira > ilk4Esik;
   });
 
   return sonuclar;
@@ -3606,7 +3615,11 @@ function stratejiKarari(puanli, kosu) {
     const sonraki = puanli[i+1];
     const fark = sonraki ? a.taktikPuan - sonraki.taktikPuan : a.taktikPuan;
     const uyum = a.kriterUyumToplam > 0 ? a.kriterUyumSayisi / a.kriterUyumToplam : 0;
-    return fark >= 10 && uyum >= 0.65;
+    const uygun = fark >= 10 && uyum >= 0.65;
+    // Görüntülemede "KİLİT" ile "FAVORİ" etiketini ayırabilmek için farkı ata işaretliyoruz:
+    // fark küçükse (<15) puan üstünlüğü ince, bunu "kilit" gibi kesin sunmak yanıltıcı olur.
+    if (uygun) a.kilitFarki = fark;
+    return uygun;
   });
 
   // Çok güçlü tek at: yalnızca 1./2. farkı >=15 ve kriter uyumu >=75 ise.
@@ -3702,9 +3715,19 @@ function stratejiBlokHtml(strat, kosuSonucu) {
   if (!strat) return '';
   const kalabalikMetni = strat.kalabalik === 'kalabalik' ? 'Kalabalık' : (strat.kalabalik === 'dar' ? 'Dar' : 'Orta');
   const durum = stratejiSonucDurumu(strat, kosuSonucu);
+  // Puan farkı büyükse ("KİLİT") güçlü bir ayrışma var demektir; fark azsa (10-15 arası)
+  // yine ilk4 içinde öne çıkıyor ama ayrışma ince — bunu "FAVORİ" diyerek daha temkinli
+  // sunuyoruz. İkisi de garanti değildir, kilitMetniNotu bunu hatırlatır.
   const kilitMetni = strat.kilitler.length
-    ? strat.kilitler.map(a => `${stratejiNumara(a.no, durum.kilitKazananlari.has(String(a.no).trim()))} <span class="strateji-kilit">KİLİT</span>`).join(' · ')
+    ? strat.kilitler.map(a => {
+        const guclu = (a.kilitFarki || 0) >= 15;
+        const etiket = guclu ? 'KİLİT' : 'FAVORİ';
+        return `${stratejiNumara(a.no, durum.kilitKazananlari.has(String(a.no).trim()))} <span class="strateji-kilit">${etiket}</span>`;
+      }).join(' · ')
     : 'Kilit çıkmadı';
+  const kilitMetniNotu = strat.kilitler.length
+    ? ' <span class="strateji-not">(bilgi amaçlı sıralama üstünlüğü — sonuç garantisi değildir)</span>'
+    : '';
   const grupFarkiMetni = strat.grupFarki === null ? '4./5. fark: —' : `4./5. fark: ${strat.grupFarki}`;
   const surprizMetni = strat.surpriz
     ? `<span class="strateji-no surpriz-no">${strat.surpriz.no}</span> ${strat.surpriz.isim} — sürpriz sigorta adayı`
@@ -3724,7 +3747,7 @@ function stratejiBlokHtml(strat, kosuSonucu) {
   return `<div class="strateji-blok">
     <div class="strateji-baslik">♟️ YENİ STRATEJİ KARARI</div>
     <div class="strateji-satir"><b>Ana oyun:</b> İlk 4 → <b>${ilk4Metni}</b> · ${kalabalikMetni} koşu · ${grupFarkiMetni}</div>
-    <div class="strateji-satir"><b>Kilit:</b> ${kilitMetni}</div>
+    <div class="strateji-satir"><b>Kilit:</b> ${kilitMetni}${kilitMetniNotu}</div>
     <div class="strateji-satir"><b>Bağımsız Sıralı İkili:</b> ${sirali2Metni} · <b>Bağımsız Sıralı Üçlü:</b> ${sirali3Metni}</div>
     <div class="strateji-satir"><b>4'lü:</b> ${dortluMetni} ${strat.surpriz ? ` · <span class="strateji-risk">Sürpriz payı: ${surprizMetni}</span>` : ''}</div>
     <div class="strateji-satir"><b>Tek At:</b> ${strat.tekAt ? `<span class="strateji-kilit">${puanliAtEtiket(strat.ilk4[0])} KİLİT</span>` : '<span class="strateji-risk">Yok — tek at için yeterli ayrışma yok</span>'}</div>
@@ -3909,6 +3932,9 @@ function renderKosular(kosular, alan, sonuclar, sehir) {
       const agfSiraHtml = a.agfSira
         ? `<span class="agf-sira${a.agfOneCikan ? ' agf-one-cikan' : ''}" title="Bu koşuda sadece AGF değerine göre sırası (1=en yüksek AGF)">AGF Sırası: ${a.agfSira}.${a.agfOneCikan ? ' ⚡' : ''}</span>`
         : '';
+      const cokluGucluHtml = a.cokluGucluUyari
+        ? `<span class="coklu-guclu-rozet" title="En az 2 kriterde çok yüksek puan (${a.cokluGucluKriterler.join(', ')}) ama ilk4 tahmininde değil — puan ortalamaya gömülmüş olabilir">⚠️ Çoklu Güçlü Kriter</span>`
+        : '';
       let kriterUyumHtml = '';
       if (a.kriterUyumToplam > 0) {
         const oran = a.kriterUyumSayisi / a.kriterUyumToplam;
@@ -3938,7 +3964,7 @@ function renderKosular(kosular, alan, sonuclar, sehir) {
         <div class="at-satir ${sinif}${kazandiSinifi}">
           <div class="madalya">${rozetIcerik}</div>
           <div class="at-bilgi">
-            <div class="at-isim">${a.no||'?'} ${a.isim}${kazananRozeti}${gercekHtml}${agfSiraHtml}</div>
+            <div class="at-isim">${a.no||'?'} ${a.isim}${kazananRozeti}${gercekHtml}${agfSiraHtml}${cokluGucluHtml}</div>
             <div class="at-kriter">${kriterDetayHtml}${kriterUyumHtml}${eksikRozet}</div>
             ${pistMesafeHtml}
             ${gelismisHtml}
