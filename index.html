@@ -76,6 +76,11 @@
   .giris-input{width:100%;padding:14px 15px;border-radius:13px;border:1px solid rgba(148,163,184,.20);background:rgba(255,255,255,.03);color:var(--txt);font-size:15px;}
   .giris-input::placeholder{color:#5c748f;}
   .giris-input:focus{outline:none;border-color:rgba(0,212,255,.45);}
+  .giris-sifre-sarmal{position:relative;}
+  .giris-sifre-sarmal .giris-input{padding-right:46px;}
+  .giris-sifre-goster{position:absolute;top:0;right:0;bottom:0;width:44px;display:flex;align-items:center;justify-content:center;background:none;border:none;color:#5c748f;padding:0;}
+  .giris-sifre-goster svg{width:19px;height:19px;}
+  .giris-sifre-goster.aktif{color:var(--cyan);}
   .btn-kullanici-giris{width:100%;padding:14px 16px;border-radius:13px;border:1px solid rgba(0,212,255,.30);background:linear-gradient(145deg,rgba(0,212,255,.16),rgba(0,140,200,.09));color:var(--cyan);font-size:14.5px;font-weight:850;letter-spacing:.3px;}
   .btn-kullanici-giris:disabled{opacity:.5;}
   .giris-mod-degistir{margin:14px 0 0;color:#8ea5bf;font-size:12.5px;}
@@ -106,6 +111,8 @@
   .btn-ver{flex:1;padding:9px 10px;border-radius:9px;border:1px solid rgba(74,222,128,0.35);background:rgba(74,222,128,0.10);color:var(--green);font-size:13px;font-weight:800;}
   .btn-kaldir{padding:9px 12px;border-radius:9px;border:1px solid rgba(255,107,107,0.30);background:transparent;color:var(--red);font-size:13px;font-weight:800;}
   .admin-not{font-size:11.5px;color:var(--txt-dim);margin-top:6px;}
+  .admin-giris-cikis-bilgi{font-size:11px;color:var(--txt-dim);margin-bottom:8px;}
+  .btn-hesap-sil{width:100%;margin-top:8px;padding:10px;border-radius:9px;border:1px solid rgba(255,107,107,0.40);background:rgba(255,70,100,0.08);color:var(--red);font-size:13px;font-weight:800;}
   .vip-kalan-rozet{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:999px;background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.35);color:var(--green);font-size:11.5px;font-weight:900;white-space:nowrap;}
   .vip-kalan-rozet.admin-rozet{background:rgba(251,191,36,0.14);border-color:rgba(251,191,36,0.35);color:var(--gold);}
   .admin-gun-input{width:56px;}
@@ -776,7 +783,12 @@ details.detay-ac[open] > summary{animation:none !important;}
 
     <form class="giris-kullanici-form" id="kullaniciAdiForm">
       <input type="text" class="giris-input" id="kullaniciAdiInput" placeholder="Kullanıcı adı" autocomplete="username" maxlength="20">
-      <input type="password" class="giris-input" id="kullaniciSifreInput" placeholder="Şifre" autocomplete="current-password">
+      <div class="giris-sifre-sarmal">
+        <input type="password" class="giris-input" id="kullaniciSifreInput" placeholder="Şifre" autocomplete="current-password">
+        <button type="button" class="giris-sifre-goster" id="sifreGosterBtn" aria-label="Şifreyi göster">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
       <button type="submit" class="btn-kullanici-giris" id="kullaniciAdiSubmitBtn">Giriş Yap</button>
     </form>
     <p class="giris-mod-degistir">Hesabın yok mu? <button type="button" id="kullaniciAdiModDegistir">Kayıt ol</button></p>
@@ -873,9 +885,12 @@ details.detay-ac[open] > summary{animation:none !important;}
     createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
   import {
-    getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp,
+    getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp,
     collection, getDocs, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import {
+    getFunctions, httpsCallable
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-functions.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyBUrROj2defy-aVlx4UKqBX5kAk17LD9Hg",
@@ -893,6 +908,7 @@ details.detay-ac[open] > summary{animation:none !important;}
   const auth = getAuth(app);
   const db = getFirestore(app);
   const provider = new GoogleAuthProvider();
+  const functions = getFunctions(app);
 
   // Firebase Authentication kullanıcı adı desteklemediği için (email formatı istiyor),
   // kullanıcı adını görünmez, sabit bir sahte email'e çeviriyoruz. Kullanıcı bunu hiç görmez;
@@ -1077,8 +1093,13 @@ details.detay-ac[open] > summary{animation:none !important;}
     }
   });
 
-  cikisBtn.addEventListener('click', () => signOut(auth));
-  cikisBtn2.addEventListener('click', () => signOut(auth));
+  async function cikisYapVeKaydet(){
+    const u = auth.currentUser;
+    if (u) { try { await updateDoc(doc(db,'users',u.uid), { lastLogout: serverTimestamp() }); } catch(e) {} }
+    await signOut(auth);
+  }
+  cikisBtn.addEventListener('click', cikisYapVeKaydet);
+  cikisBtn2.addEventListener('click', cikisYapVeKaydet);
 
   // ============ KULLANICI ADI + ŞİFRE İLE GİRİŞ / KAYIT ============
   const kullaniciAdiForm = document.getElementById('kullaniciAdiForm');
@@ -1086,7 +1107,22 @@ details.detay-ac[open] > summary{animation:none !important;}
   const kullaniciSifreInput = document.getElementById('kullaniciSifreInput');
   const kullaniciAdiSubmitBtn = document.getElementById('kullaniciAdiSubmitBtn');
   const kullaniciAdiModDegistir = document.getElementById('kullaniciAdiModDegistir');
+  const sifreGosterBtn = document.getElementById('sifreGosterBtn');
   let kullaniciAdiModu = 'giris'; // 'giris' | 'kayit'
+
+  // Ekran kapatılıp tekrar açıldığında kullanıcı adı hatırlansın diye tarayıcıya kaydediyoruz
+  // (şifre asla saklanmaz, sadece kullanıcı adı).
+  const HATIRLANAN_KULLANICI_ADI_ANAHTARI = 'bizimTaktikKullaniciAdi';
+  try {
+    const hatirlanan = localStorage.getItem(HATIRLANAN_KULLANICI_ADI_ANAHTARI);
+    if (hatirlanan) kullaniciAdiInput.value = hatirlanan;
+  } catch (e) {}
+
+  sifreGosterBtn.addEventListener('click', () => {
+    const gosteriliyor = kullaniciSifreInput.type === 'text';
+    kullaniciSifreInput.type = gosteriliyor ? 'password' : 'text';
+    sifreGosterBtn.classList.toggle('aktif', !gosteriliyor);
+  });
 
   kullaniciAdiModDegistir.addEventListener('click', () => {
     girisHata.style.display = 'none';
@@ -1136,6 +1172,7 @@ details.detay-ac[open] > summary{animation:none !important;}
       } else {
         await signInWithEmailAndPassword(auth, sahteEmail, sifre);
       }
+      try { localStorage.setItem(HATIRLANAN_KULLANICI_ADI_ANAHTARI, ad); } catch (e) {}
     } catch (err) {
       sonKayitKullaniciAdi = null;
       if (err.code === 'auth/email-already-in-use') {
@@ -1190,6 +1227,8 @@ details.detay-ac[open] > summary{animation:none !important;}
       else { durumHtml = 'Üyelik yok'; durumSinif = 'yok'; }
       const kullaniciAdiHesabiMi = u.girisTuru === 'kullaniciadi';
       const altBilgi = kullaniciAdiHesabiMi ? `@${u.username||''} · kullanıcı adı hesabı` : (u.email||'');
+      const sonGirisSaati = u.lastLogin ? u.lastLogin.toDate().toLocaleString('tr-TR') : '—';
+      const sonCikisSaati = u.lastLogout ? u.lastLogout.toDate().toLocaleString('tr-TR') : '—';
       return `<div class="admin-kullanici-kart" data-uid="${u.id}">
         <div class="admin-kullanici-ust">
           <img class="admin-avatar" src="${u.photoURL||''}" alt="">
@@ -1199,6 +1238,7 @@ details.detay-ac[open] > summary{animation:none !important;}
           </div>
           <span class="admin-vip-durum ${durumSinif}">${durumHtml}</span>
         </div>
+        <div class="admin-giris-cikis-bilgi">🟢 Son giriş: ${sonGirisSaati} &nbsp;·&nbsp; 🔴 Son çıkış: ${sonCikisSaati}</div>
         ${kalanBilgiHtml}
         ${isAdminUser ? '' : `
         <div class="admin-kontrol-satir">
@@ -1211,7 +1251,8 @@ details.detay-ac[open] > summary{animation:none !important;}
           <button class="btn-ver" data-aksiyon="ver" data-uid="${u.id}">VIP Ver</button>
           <button class="btn-kaldir" data-aksiyon="kaldir" data-uid="${u.id}">Kaldır</button>
         </div>
-        ${kullaniciAdiHesabiMi ? `<div class="admin-not">🔑 Şifresini unutursa yeni bir kullanıcı adıyla tekrar kayıt olması yeterli — üyeliğini yeni hesabına buradan sen tekrar tanımlarsın.</div>` : ''}`}
+        ${kullaniciAdiHesabiMi ? `<div class="admin-not">🔑 Şifresini unutursa yeni bir kullanıcı adıyla tekrar kayıt olması yeterli — üyeliğini yeni hesabına buradan sen tekrar tanımlarsın.</div>` : ''}
+        <button class="btn-hesap-sil" data-aksiyon="sil" data-uid="${u.id}">🗑️ Hesabı Komple Sil</button>`}
       </div>`;
     }).join('');
   }
@@ -1240,6 +1281,19 @@ details.detay-ac[open] > summary{animation:none !important;}
       } else if (aksiyon === 'kaldir') {
         if (!confirm('Bu kullanıcının VIP üyeliğini kaldırmak istediğine emin misin?')) { btn.disabled = false; btn.textContent = eskiMetin; return; }
         await updateDoc(doc(db,'users',uid), { vipUntil: null });
+      } else if (aksiyon === 'sil') {
+        const kullanici = tumKullanicilar.find(u => u.id === uid);
+        const isim = kullanici ? (kullanici.username ? '@'+kullanici.username : (kullanici.displayName||'bu kullanıcı')) : 'bu kullanıcı';
+        if (!confirm(isim + ' hesabını KOMPLE silmek istediğine emin misin? Bu işlem geri alınamaz.')) { btn.disabled = false; btn.textContent = eskiMetin; return; }
+        try {
+          // Önce gerçek Firebase Auth hesabını da silmeyi dener (Cloud Function deploy edilmişse).
+          const adminHesapSil = httpsCallable(functions, 'adminHesapSil');
+          await adminHesapSil({ uid });
+        } catch (fnErr) {
+          // Fonksiyon henüz deploy edilmemişse en azından profil/VIP verisini sil.
+          await deleteDoc(doc(db,'users',uid));
+          alert('Not: Cloud Function henüz deploy edilmediği için sadece profil/VIP verisi silindi. Auth hesabının da tamamen silinmesi için "adminHesapSil" fonksiyonunu deploy etmen gerekiyor.');
+        }
       }
       await adminKullanicilariYukle();
     } catch (err) {
