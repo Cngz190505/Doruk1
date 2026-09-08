@@ -22,12 +22,27 @@ def veri_cek():
         )
         sayfa = tarayici.new_page()
         sayfa.goto(hedef_adres, wait_until="domcontentloaded", timeout=30000)
-        sayfa.wait_for_timeout(4000)
+        sayfa.wait_for_timeout(8000)
         icerik = sayfa.content()
         tarayici.close()
+
+    kucuk_icerik = icerik.lower()
+    ganyan_konumu = kucuk_icerik.find("ganyan")
+
+    if ganyan_konumu != -1:
+        baslangic = max(0, ganyan_konumu - 300)
+        bitis = ganyan_konumu + 1200
+        cevre_metin = icerik[baslangic:bitis]
+    else:
+        cevre_metin = "GANYAN kelimesi bulunamadi"
+
+    orta_nokta = len(icerik) // 2
+
     return jsonify({
-        "uzunluk": len(icerik),
-        "ilk_1500_karakter": icerik[:1500]
+        "toplam_uzunluk": len(icerik),
+        "ganyan_bulundu_mu": ganyan_konumu != -1,
+        "ganyan_civari": cevre_metin,
+        "ortadan_ornek": icerik[orta_nokta:orta_nokta + 1000],
     })
 
 if __name__ == "__main__":
