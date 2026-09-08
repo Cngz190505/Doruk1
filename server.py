@@ -12,9 +12,17 @@ def anasayfa():
 def veri_cek():
     hedef_adres = "https://www.atyarisi.com/tjk-at-yarisi-bulteni"
     with sync_playwright() as p:
-        tarayici = p.chromium.launch()
+        tarayici = p.chromium.launch(
+            args=[
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-gpu",
+                "--single-process",
+            ]
+        )
         sayfa = tarayici.new_page()
-        sayfa.goto(hedef_adres, wait_until="networkidle", timeout=30000)
+        sayfa.goto(hedef_adres, wait_until="domcontentloaded", timeout=30000)
+        sayfa.wait_for_timeout(4000)
         icerik = sayfa.content()
         tarayici.close()
     return jsonify({
