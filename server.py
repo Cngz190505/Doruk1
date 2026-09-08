@@ -1,5 +1,5 @@
 from flask import Flask, jsonify
-import requests
+from playwright.sync_api import sync_playwright
 import os
 
 app = Flask(__name__)
@@ -11,10 +11,15 @@ def anasayfa():
 @app.route("/veri")
 def veri_cek():
     hedef_adres = "https://www.atyarisi.com/tjk-at-yarisi-bulteni"
-    cevap = requests.get(hedef_adres, timeout=15)
+    with sync_playwright() as p:
+        tarayici = p.chromium.launch()
+        sayfa = tarayici.new_page()
+        sayfa.goto(hedef_adres, wait_until="networkidle", timeout=30000)
+        icerik = sayfa.content()
+        tarayici.close()
     return jsonify({
-        "durum_kodu": cevap.status_code,
-        "ilk_1000_karakter": cevap.text[:1000]
+        "uzunluk": len(icerik),
+        "ilk_1500_karakter": icerik[:1500]
     })
 
 if __name__ == "__main__":
