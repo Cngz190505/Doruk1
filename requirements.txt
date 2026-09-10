@@ -1,0 +1,4 @@
+Flask>=3,<4
+gunicorn>=23
+requests>=2.32
+flask-cors>=6,<7
