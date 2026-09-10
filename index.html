@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Doruk Live</title>
+<style>
+body{margin:0;background:#0b1220;color:#eef2f7;font-family:Arial,sans-serif}
+.wrap{max-width:760px;margin:auto;padding:16px}
+h1{margin:4px 0 16px}.tabs{display:flex;gap:8px;margin-bottom:14px}
+button{border:0;border-radius:10px;padding:11px 14px;font-weight:700}
+.active{background:#19a463;color:white}.off{background:#202b3d;color:#cbd5e1}
+.card{background:#111b2d;border:1px solid #24324a;border-radius:14px;padding:13px;margin:10px 0}
+.meta{font-size:12px;color:#9aa8bc;margin-bottom:8px}.teams{display:flex;justify-content:space-between;gap:10px;font-weight:700}
+.score{font-size:20px;white-space:nowrap}.status{font-size:11px;color:#66e2a1;margin-top:8px}
+.muted{color:#9aa8bc;text-align:center;padding:25px}.err{background:#4a1f25;padding:10px;border-radius:10px;margin-bottom:12px}
+#updated{font-size:11px;color:#8190a5;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>⚽ Canlı Sonuçlar</h1>
+<div class="tabs">
+<button id="bLive" class="active" onclick="show('live')">🟢 Canlı</button>
+<button id="bRes" class="off" onclick="show('results')">🔵 Sonuçlar</button>
+</div>
+<div id="updated"></div><div id="err"></div><main id="list"><div class="muted">Veriler bekleniyor...</div></main>
+</div>
+<script>
+let mode='live';
+function show(x){mode=x; bLive.className=x==='live'?'active':'off';bRes.className=x==='results'?'active':'off';load();}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function render(a){
+ if(!a.length)return '<div class="muted">'+(mode==='live'?'Şu an canlı maç bulunamadı.':'Henüz kayıtlı sonuç yok.')+'</div>';
+ return a.map(m=>`<div class="card"><div class="meta">${esc(m.league||'Lig bilgisi yok')} ${esc(m.time||'')}</div>
+ <div class="teams"><span>${esc(m.home)}</span><span class="score">${esc(m.home_score)} - ${esc(m.away_score)}</span><span>${esc(m.away)}</span></div>
+ <div class="status">${esc(m.status||'')}</div></div>`).join('');
+}
+async function load(){
+ try{
+  let u=mode==='live'?'/api/live':'/api/results';let d=await (await fetch(u,{cache:'no-store'})).json();
+  document.getElementById('updated').textContent=d.updated?'Son güncelleme: '+d.updated:'';
+  document.getElementById('err').innerHTML=d.error?'<div class="err">'+esc(d.error)+'</div>':'';
+  document.getElementById('list').innerHTML=render(mode==='live'?(d.live||[]):(d.results||[]));
+ }catch(e){document.getElementById('err').innerHTML='<div class="err">'+esc(e.message)+'</div>'}
+}
+load(); setInterval(load,2000);
+</script>
+</body>
+</html>
