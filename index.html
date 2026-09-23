@@ -1441,6 +1441,7 @@ details.ay-blok > .ay-blok-ic{padding:10px 12px;}
 .ay-blok-kariyer{border-color:rgba(251,191,36,.24);background:rgba(251,191,36,.035);} .ay-blok-kariyer>.ay-blok-baslik{color:#fbbf24;}
 .ay-blok-detay{border-color:rgba(125,211,252,.20);background:rgba(125,211,252,.03);} .ay-blok-detay>.ay-blok-baslik{color:#a8c8de;}
 .ay-blok-galop{border-color:rgba(74,222,128,.22);background:rgba(74,222,128,.035);} .ay-blok-galop>.ay-blok-baslik{color:#86efac;}
+.ay-blok-sonkosu{border-color:rgba(96,165,250,.24);background:rgba(96,165,250,.035);} .ay-blok-sonkosu>.ay-blok-baslik{color:#93c5fd;}
 /* SON GALOPLAR — her gün kendi mini bloğu, split'ler ayrı çip: dar ekranda taşma/hizasızlık olmaz */
 .galop-liste{display:flex;flex-direction:column;gap:12px;}
 .galop-gun{padding-top:10px;border-top:1px solid rgba(255,255,255,.05);}
@@ -1489,6 +1490,8 @@ details.ay-blok > .ay-blok-ic{padding:10px 12px;}
 .sk-fark-iyi{border-color:rgba(74,222,128,.25);} .sk-fark-iyi em{color:#4ade80;}
 .sk-fark-zayif{border-color:rgba(255,107,107,.22);} .sk-fark-zayif em{color:#ff8f8f;}
 .sk-fark-notr em{color:#8ca1b7;}
+.sk-yer{font-size:12px;color:#8ca1b7;margin-top:6px;display:flex;align-items:center;gap:4px;}
+.sk-bugun-takisiz{color:#a9bdd3;font-weight:700;}
 </style>
 </head>
 <body>
@@ -2568,8 +2571,68 @@ function kulvarGecmisHtml(kg, bugunSt, atIsim, bugunAtSayisi) {
 }
 // Bir atın geçmiş koşularında taşıdığı sıkleti (kilo), bugünkü sıkletiyle farkını,
 // o gün hangi jokeyle koştuğunu ve takı/ekstra donanımı olup olmadığını listeler.
+// ============ SON ÇIKIŞ & SON GALİBİYET ============
+// "En son ne zaman koştu / kaç gün(dür) koşmuyor" ve "en son ne zaman, hangi jokeyle,
+// hangi hipodrom/pistte kazandı" bilgisini tek küçük kartta gösterir. Sadece bilgi amaçlı.
+// gun=0 -> "bugün"; 30'dan az -> "X gün önce"; 30+ -> "X ay (Y gün) önce".
+function gunFarkMetni(gun) {
+  if (gun === null || gun === undefined) return '—';
+  if (gun === 0) return 'bugün';
+  if (gun < 30) return `${gun} gün önce`;
+  const ay = Math.floor(gun / 30), kalanGun = gun % 30;
+  return kalanGun ? `${ay} ay ${kalanGun} gün önce` : `${ay} ay önce`;
+}
+// Tazelik rengi: yakın zamanda koşmuş/kazanmış olmak "iyi" (yeşil), uzun süredir olmamak "zayıf" (kırmızı).
+// Mevcut derece-iyi/orta/zayif rozet renkleri burada "iyi haber / kötü haber" anlamıyla yeniden kullanılıyor.
+function tazelikRenkSinifi(gun) {
+  if (gun === null || gun === undefined) return 'derece-yok';
+  return gun <= 14 ? 'derece-iyi' : (gun <= 30 ? 'derece-orta' : 'derece-zayif');
+}
+function sonKosuGalibiyetHtml(gecmis, atIsim, iso) {
+  if (!gecmis || !gecmis.length) return '';
+  const esc = katilanAttr;
+  const trh = t => { const m = String(t || '').match(/(\d{2})[./](\d{2})[./](\d{4})/); return m ? m[3] + m[2] + m[1] : ''; };
+  const tarihKisa = t => String(t || '').replace(/^(\d{2})[./](\d{2})[./]\d{2}(\d{2})$/, '$1.$2.$3');
+  const yerMetni = g => [g.sehir, g.pistTipi, g.mesafe ? `${g.mesafe} m` : null].filter(Boolean).join(' · ');
+  const gecerli = gecmis.filter(g => g && g.tarih && trh(g.tarih));
+  if (!gecerli.length) return '';
+  const sirali = gecerli.slice().sort((x, y) => trh(y.tarih).localeCompare(trh(x.tarih)));
+
+  const sonKosu = sirali[0];
+  const sonKosuGun = tarihFarkiGun(sonKosu.tarih, iso);
+  // Son koşunun kaçıncı bittiği — kazanmış olsun ya da olmasın her zaman gösterilir; sayının
+  // içindeki ".kn" parçası, sayfanın diğer yerlerindeki aynı arka plan mekanizmasıyla (o günün
+  // resmi sonuç sayfasından) "kaçıncı/kaç at" formatına (örn. "5/12") otomatik tamamlanır.
+  const sonKosuSiraSayi = sonKosu.sira ? parseInt(sonKosu.sira, 10) : null;
+  const sonKosuSiraRenk = sonKosuSiraSayi == null ? 'sk-sira-yok' : (sonKosuSiraSayi <= 3 ? 'sk-sira-iyi' : (sonKosuSiraSayi <= 6 ? 'sk-sira-orta' : 'sk-sira-zayif'));
+  const sonKosuSiraRozet = sonKosu.sira
+    ? `<span class="sk-sira-rozet ${sonKosuSiraRenk}"><span class="kn kn-bekliyor" data-tarih="${esc(sonKosu.tarih)}" data-sehir="${esc(sonKosu.sehir || '')}" data-sira="${sonKosu.sira}" data-ad="${encodeURIComponent(atIsim || '')}">${sonKosu.sira}.</span> bitirdi</span>`
+    : `<span class="sk-sira-rozet sk-sira-yok">derece yok</span>`;
+  const sonKosuKart = `<div class="ay-kv">
+    <span>🕓 Son koşusu</span>
+    <b><span class="derece-rozet ${tazelikRenkSinifi(sonKosuGun)}">${gunFarkMetni(sonKosuGun)}</span> · ${esc(tarihKisa(sonKosu.tarih))} · ${sonKosuSiraRozet}${yerMetni(sonKosu) ? ' · ' + esc(yerMetni(sonKosu)) : ''}</b>
+  </div>`;
+
+  const galibiyetler = sirali.filter(g => parseInt(g.sira, 10) === 1);
+  const sonGalibiyetKart = galibiyetler.length
+    ? (() => {
+        const sg = galibiyetler[0];
+        const sgGun = tarihFarkiGun(sg.tarih, iso);
+        return `<div class="ay-kv">
+          <span>🏆 Son galibiyeti</span>
+          <b><span class="derece-rozet ${tazelikRenkSinifi(sgGun)}">${gunFarkMetni(sgGun)}</span> · ${esc(tarihKisa(sg.tarih))}${sg.jokey ? ' · 🏇 ' + esc(sg.jokey) : ''}${yerMetni(sg) ? ' · ' + esc(yerMetni(sg)) : ''}</b>
+        </div>`;
+      })()
+    : `<div class="ay-kv"><span>🏆 Son galibiyeti</span><b class="ay-bos">bu kayıtlı geçmişte galibiyeti yok</b></div>`;
+
+  return ayBlokAc(
+    `📅 Son çıkış &amp; galibiyet<span class="ay-mini">kaçıncı bitirdi (kazandı mı kazanmadı mı fark etmez) · kaç gün/aydır koşmuyor · en son ne zaman, kimle, nerede kazandı</span>`,
+    `${sonKosuKart}${sonGalibiyetKart}`,
+    'ay-blok-sonkosu'
+  );
+}
 // Sadece bilgi amaçlı — mevcut Sıklet kriterinin ağırlığı zaten çok düşük.
-function sikletGecmisHtml(gecmis, bugunSiklet, atIsim, bugunJokey) {
+function sikletGecmisHtml(gecmis, bugunSiklet, atIsim, bugunJokey, bugunTaki, takiSutunVarMi) {
   if (!gecmis || !gecmis.length) return '';
   const kayitlar = gecmis.filter(g => g.siklet !== null && g.siklet !== undefined);
   if (!kayitlar.length) return '';
@@ -2583,11 +2646,22 @@ function sikletGecmisHtml(gecmis, bugunSiklet, atIsim, bugunJokey) {
     const farkMetin = fark === null ? '' : (Math.abs(fark) < 0.5 ? '±0 kg' : (fark > 0 ? `+${fark} kg` : `${fark} kg`));
     const farkRenk = (fark === null || Math.abs(fark) < 0.5) ? 'sk-fark-notr' : (fark > 0 ? 'sk-fark-zayif' : 'sk-fark-iyi');
     const siraSayi = g.sira ? parseInt(g.sira, 10) : null;
+    // Sıra rozetinin içine ".kn" ile işaretli bir sayı koyuyoruz: bu, sayfanın başka yerlerinde de
+    // (Pist/Mesafe, Kulvar geçmişi) kullanılan aynı arka plan mekanizmasıyla — o günün resmi sonuç
+    // sayfasından — "kaç atlı koşuda kaçıncı bitirdi" bilgisiyle otomatik tamamlanır (örn. "5/12").
+    // Doğrulanamazsa sadece "5." olarak kalır, tahmin edilmez.
     const siraRozet = g.sira
-      ? `<span class="sk-sira-rozet ${siraRenkSinifi(siraSayi)}">${g.sira}. bitirdi</span>`
+      ? `<span class="sk-sira-rozet ${siraRenkSinifi(siraSayi)}"><span class="kn kn-bekliyor" data-tarih="${esc(g.tarih)}" data-sehir="${esc(g.sehir || '')}" data-sira="${g.sira}" data-ad="${encodeURIComponent(atIsim || '')}">${g.sira}.</span> bitirdi</span>`
       : `<span class="sk-sira-rozet sk-sira-yok">derece yok</span>`;
+    // Hangi hipodromda, hangi pistte, kaç metre koştuğu — geçmiş kayıtta zaten var, sadece gösteriliyor.
+    const yerParcalari = [];
+    if (g.sehir) yerParcalari.push(esc(g.sehir));
+    if (g.pistTipi) yerParcalari.push(esc(g.pistTipi));
+    if (g.mesafe) yerParcalari.push(`${g.mesafe} m`);
+    const yerSatiri = yerParcalari.length ? `<div class="sk-yer">🏟️ ${yerParcalari.join(' · ')}</div>` : '';
     return `<div class="sk-satir">
       <div class="sk-ust"><span class="sk-tarih">${tarihKisa}</span>${siraRozet}</div>
+      ${yerSatiri}
       <div class="sk-alt">
         <span class="sk-agirlik-pill ${farkRenk}">${g.siklet} kg${farkMetin ? ` <em>(${farkMetin})</em>` : ''}</span>
         ${g.jokey ? `<span class="sk-jokey">🏇 ${esc(g.jokey)}</span>` : ''}
@@ -2595,10 +2669,19 @@ function sikletGecmisHtml(gecmis, bugunSiklet, atIsim, bugunJokey) {
       </div>
     </div>`;
   }).join('');
+  // Bugünkü takı durumu: sütun sayfada hiç yoksa (takiSutunVarMi=false) hiçbir şey söylenmez —
+  // "takısız" ile "bilinmiyor" birbirine karışıp yanlış bilgi verilmesin diye.
+  let takiParcasi = '';
+  if (bugunTaki) takiParcasi = ` <i class="sk-bugun-ayrac">·</i> 🎯 <b>${esc(bugunTaki)}</b>`;
+  else if (takiSutunVarMi) takiParcasi = ` <i class="sk-bugun-ayrac">·</i> <span class="sk-bugun-takisiz">takısız</span>`;
   const bugunRozet = bugunSiklet != null
-    ? `<span class="sk-bugun-rozet">bugün <b>${bugunSiklet} kg</b>${bugunJokey ? ` <i class="sk-bugun-ayrac">·</i> 🏇 <b>${esc(bugunJokey)}</b>` : ''}</span>`
+    ? `<span class="sk-bugun-rozet">bugün <b>${bugunSiklet} kg</b>${bugunJokey ? ` <i class="sk-bugun-ayrac">·</i> 🏇 <b>${esc(bugunJokey)}</b>` : ''}${takiParcasi}</span>`
     : '';
-  return ayBlokAc(`⚖️ Sıklet geçmişi${bugunRozet}`, satirlar, 'ay-blok-siklet');
+  return ayBlokAc(
+    `⚖️ Sıklet geçmişi${bugunRozet}<span class="ay-mini">son ${sirali.length} koşu · en yeniden eskiye · sıra rozeti "kaçıncı/kaç at" olarak dolacak</span>`,
+    satirlar,
+    'ay-blok-siklet'
+  );
 }
 // Sadece referans amaçlıdır (puanlamaya girmez) — bu yüzden ayrı, turuncu renkli bir blok.
 function digerPistMesafeHtml(diger, atIsim) {
@@ -2747,9 +2830,15 @@ function ayrintiPaneliHtml(a, k) {
     bolumler.push(kulvarGecmisHtml(a.kulvarGecmisOzet, a.st, a.isim, (k.atlar || []).length || null));
   }
 
+  // 3b2) son çıkış & son galibiyet: en son ne zaman koştu (kaç gün/aydır koşmuyor) ve
+  // en son ne zaman, hangi jokeyle, hangi hipodrom/pistte kazandı
+  if (a.gecmisTumKosular && a.gecmisTumKosular.length) {
+    bolumler.push(sonKosuGalibiyetHtml(a.gecmisTumKosular, a.isim, SEC_TARIH_ISO));
+  }
+
   // 3c) sıklet geçmişi: geçmişte taşıdığı kilo, bugünküyle farkı, o günkü jokey ve takı
   if (a.gecmisTumKosular && a.gecmisTumKosular.length) {
-    bolumler.push(sikletGecmisHtml(a.gecmisTumKosular, a.siklet, a.isim, a.jokey));
+    bolumler.push(sikletGecmisHtml(a.gecmisTumKosular, a.siklet, a.isim, a.jokey, a.taki, a.takiSutunVarMi));
   }
 
   // 4) karşılaşma — her ortak koşu TEK satır: kimin önünde / arkasında bitirdi
@@ -3990,6 +4079,11 @@ function parseAtTablosu(tablo) {
   const idxGny = sutun('Gny');
   const idxAgf = sutun('AGF');
   const idxAntrenor = (()=>{for(const ad of ['Antrenör','Antrenor','Antr.']){const i=sutun(ad);if(i>=0)return i;}return -1;})();
+  // Bugünkü koşuda takı/ekstra donanım (gözlük, yular vb.) sütunu — TJK sayfa sürümüne göre
+  // bulunmayabilir. Sütun hiç yoksa (idxTaki=-1) "takısız" ile "veri yok" birbirine karışmasın diye
+  // bunu ayrı bir bayrakla (takiSutunVarMi) işaretliyoruz; sütun varsa ve hücre boşsa gerçekten takısız.
+  const idxTaki = sutun(['Ekstra','Takı','Taki','Donanım']);
+  const takiSutunVarMi = idxTaki >= 0;
 
   const atlar = [];
   for (let i = basIdx+1; i < satirlar.length; i++) {
@@ -4020,7 +4114,8 @@ function parseAtTablosu(tablo) {
       enIyiDereceHam: al(idxEnIyi),
       gny: parseFloat((al(idxGny)||'').replace(',','.')) || null,
       agfYuzde: parseAgf(al(idxAgf)),
-      agfHam: al(idxAgf), antrenor: al(idxAntrenor)||null
+      agfHam: al(idxAgf), antrenor: al(idxAntrenor)||null,
+      taki: al(idxTaki) || null, takiSutunVarMi
     });
   }
   return {
